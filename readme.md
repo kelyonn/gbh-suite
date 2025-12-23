@@ -1,6 +1,4 @@
-Here is the complete `README.md` file, formatted and ready to use.
 
-```markdown
 # 🏨 The Grand Budapest Hotel (GBH) Suite
 
 **"I just wanted to clean my Downloads folder... and then I accidentally built a hotel."**
