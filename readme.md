@@ -161,7 +161,3 @@ launchctl load ~/Library/LaunchAgents/com.kalyan.gbh.dimitri.plist
 * **Subprocess** (Shell Integration & Git Commands)
 * **Hashlib** (Data Integrity & Duplicate Detection)
 * **Launchd** (macOS Daemon Management)
-
-```
-
-```
