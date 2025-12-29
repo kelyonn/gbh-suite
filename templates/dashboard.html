@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>GBH Concierge</title>
+    <style>
+        body { font-family: -apple-system, system-ui, sans-serif; background: #1a1a1a; color: #fff; padding: 40px; }
+        .container { max-width: 800px; margin: 0 auto; }
+        
+        h1 { color: #d4af37; letter-spacing: 2px; text-transform: uppercase; border-bottom: 1px solid #333; padding-bottom: 20px; }
+        
+        .grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 20px; margin-top: 30px; }
+        
+        .card { background: #2a2a2a; padding: 20px; border-radius: 12px; text-align: center; border: 1px solid #333; }
+        .number { font-size: 3em; font-weight: bold; color: #d4af37; margin: 10px 0; font-feature-settings: "tnum"; font-variant-numeric: tabular-nums; }
+        .label { color: #888; text-transform: uppercase; font-size: 0.8em; letter-spacing: 1px; }
+
+        .status-ok { color: #4ade80; }
+        .status-warn { color: #facc15; }
+        .status-bad { color: #f87171; }
+
+        /* STAFF STATUS SECTION */
+        .staff-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 10px; }
+        .staff-member { background: #222; padding: 10px; border-radius: 8px; display: flex; align-items: center; justify-content: center; gap: 10px; }
+        .dot { height: 12px; width: 12px; border-radius: 50%; background-color: #555; box-shadow: 0 0 5px rgba(0,0,0,0.5); }
+        .dot.online { background-color: #4ade80; box-shadow: 0 0 8px #4ade80; }
+        .dot.offline { background-color: #f87171; }
+
+        .actions { margin-top: 40px; }
+        .btn {
+            background: #d4af37; color: #1a1a1a; border: none; padding: 15px 30px;
+            font-size: 1em; font-weight: bold; border-radius: 8px; cursor: pointer;
+            transition: opacity 0.2s; width: 100%;
+        }
+        .btn:hover { opacity: 0.9; }
+
+        #toast {
+            visibility: hidden; min-width: 250px; background-color: #333; color: #fff;
+            text-align: center; border-radius: 8px; padding: 16px; position: fixed;
+            z-index: 1; left: 50%; bottom: 30px; transform: translateX(-50%);
+            border: 1px solid #d4af37;
+        }
+        #toast.show { visibility: visible; animation: fadein 0.5s, fadeout 0.5s 2.5s; }
+        
+        @keyframes fadein { from {bottom: 0; opacity: 0;} to {bottom: 30px; opacity: 1;} }
+        @keyframes fadeout { from {bottom: 30px; opacity: 1;} to {bottom: 0; opacity: 0;} }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>🏨 Grand Budapest Concierge</h1>
+        
+        <div class="grid" style="grid-template-columns: repeat(3, 1fr);">
+            <div class="card">
+                <div class="label">CPU Load</div>
+                <div class="number"><span id="cpu">{{ vitals.cpu_percent }}</span>%</div>
+            </div>
+            <div class="card">
+                <div class="label">Memory Usage</div>
+                <div class="number">
+                    <span id="ram" class="{% if vitals.ram_percent > 85 %}status-bad{% elif vitals.ram_percent > 60 %}status-warn{% else %}status-ok{% endif %}">
+                        {{ vitals.ram_percent }}
+                    </span>%
+                </div>
+            </div>
+            <div class="card">
+                <div class="label">Disk Free</div>
+                <div class="number"><span id="disk">{{ vitals.disk_free }}</span><span style="font-size:0.4em">GB</span></div>
+            </div>
+        </div>
+
+        <div class="card" style="margin-top: 20px;">
+            <div class="label">Staff Status</div>
+            <div class="staff-grid">
+                <div class="staff-member">
+                    <div id="dot-serge" class="dot {% if vitals.staff.serge %}online{% else %}offline{% endif %}"></div>
+                    <span>Serge (Sorter)</span>
+                </div>
+                <div class="staff-member">
+                    <div id="dot-dimitri" class="dot {% if vitals.staff.dimitri %}online{% else %}offline{% endif %}"></div>
+                    <span>Dimitri (Watcher)</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="actions">
+            <button class="btn" onclick="callZero()">🧹 Call Zero (Clean Screenshots)</button>
+        </div>
+    </div>
+
+    <div id="toast">Calling Zero...</div>
+
+    <script>
+        const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+        const wsUrl = `${protocol}//${window.location.host}/ws/vitals`;
+        const socket = new WebSocket(wsUrl);
+
+        socket.onmessage = function(event) {
+            const data = JSON.parse(event.data);
+            
+            // 1. Update Numbers
+            document.getElementById("cpu").innerText = data.cpu_percent;
+            document.getElementById("disk").innerText = data.disk_free;
+            
+            const ramEl = document.getElementById("ram");
+            ramEl.innerText = data.ram_percent;
+            ramEl.classList.remove("status-ok", "status-warn", "status-bad");
+            if (data.ram_percent > 85) ramEl.classList.add("status-bad");
+            else if (data.ram_percent > 60) ramEl.classList.add("status-warn");
+            else ramEl.classList.add("status-ok");
+
+            // 2. Update Staff Lights
+            updateLight("dot-serge", data.staff.serge);
+            updateLight("dot-dimitri", data.staff.dimitri);
+        };
+
+        function updateLight(elementId, isOnline) {
+            const el = document.getElementById(elementId);
+            if (isOnline) {
+                el.classList.add("online");
+                el.classList.remove("offline");
+            } else {
+                el.classList.add("offline");
+                el.classList.remove("online");
+            }
+        }
+
+        async function callZero() {
+            const toast = document.getElementById("toast");
+            toast.innerText = "Running Clean Protocol...";
+            toast.className = "show";
+            try {
+                const response = await fetch('/api/clean', { method: 'POST' });
+                const data = await response.json();
+                toast.innerText = data.message;
+                setTimeout(function(){ toast.className = toast.className.replace("show", ""); }, 3000);
+            } catch (error) {
+                toast.innerText = "Error: Zero is not responding.";
+            }
+        }
+    </script>
+</body>
+</html>
