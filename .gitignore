@@ -15,3 +15,5 @@ __pycache__/
 
 # Archives (created by Agatha)
 *.zip
+
+zero_last_run.txt

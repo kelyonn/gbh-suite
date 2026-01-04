@@ -7,9 +7,14 @@ import shutil
 import sys
 import os
 import asyncio
+from datetime import datetime
+
+# --- SETUP PATHS ---
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+LOG_FILE = os.path.join(BASE_DIR, "zero_last_run.txt")
+sys.path.append(BASE_DIR)
 
 # --- IMPORT THE STAFF ---
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 from staff import zero
 
 # --- CONNECTION MANAGER ---
@@ -34,29 +39,37 @@ class ConnectionManager:
 
 manager = ConnectionManager()
 
-# --- HELPER: CHECK IF STAFF IS WORKING ---
+# --- HELPER: PERSISTENT MEMORY ---
+def get_last_run_date():
+    """Reads the file to see when Zero last worked."""
+    if not os.path.exists(LOG_FILE):
+        return None
+    try:
+        with open(LOG_FILE, "r") as f:
+            date_str = f.read().strip()
+            return datetime.strptime(date_str, "%Y-%m-%d").date()
+    except Exception:
+        return None
+
+def save_last_run_date(date_obj):
+    """Writes today's date to the file."""
+    with open(LOG_FILE, "w") as f:
+        f.write(date_obj.strftime("%Y-%m-%d"))
+
+# --- HELPER: CHECK STAFF ---
 def check_staff_status():
-    """Scans running processes to see if Serge or Dimitri are alive"""
-    staff_report = {
-        "serge": False,
-        "dimitri": False
-    }
-    
-    # Iterate over all running processes
+    staff_report = {"serge": False, "dimitri": False}
     for proc in psutil.process_iter(['pid', 'name', 'cmdline']):
         try:
             cmdline = proc.info['cmdline']
             if cmdline:
-                # Convert list of args to a single string for easy searching
                 cmd_str = " ".join(cmdline)
-                
                 if "serge.py" in cmd_str:
                     staff_report["serge"] = True
                 if "dimitri.py" in cmd_str:
                     staff_report["dimitri"] = True
         except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
             pass
-            
     return staff_report
 
 # --- HELPER: VITALS ---
@@ -65,23 +78,38 @@ def get_system_vitals():
     mem = psutil.virtual_memory()
     total, used, free = shutil.disk_usage("/")
     free_gb = free // (2**30)
-    
-    # Get Staff Status
     staff = check_staff_status()
-    
     return {
         "ram_percent": mem.percent,
         "disk_free": free_gb,
         "cpu_percent": cpu,
-        "staff": staff # <--- NEW DATA
+        "staff": staff
     }
 
 # --- BACKGROUND LOOP ---
 async def broadcast_loop():
     while True:
+        # 1. SEND VITALS (Fast)
         if manager.active_connections:
             data = get_system_vitals()
             await manager.broadcast(data)
+        
+        # 2. CHECK ZERO SCHEDULE (Daily)
+        # We read from the file so this persists across reboots
+        today = datetime.now().date()
+        last_run = get_last_run_date()
+
+        if last_run != today:
+            # If the dates don't match, it means we haven't cleaned TODAY yet.
+            print(f"[GBH] New day detected ({today}). Running Zero...")
+            try:
+                boy = zero.Zero()
+                boy.clean_screenshots(days_old=0)
+                # Save the date so we don't run again until tomorrow
+                save_last_run_date(today)
+            except Exception as e:
+                print(f"[GBH] Zero failed: {e}")
+
         await asyncio.sleep(1)
 
 # --- APP LIFECYCLE ---
@@ -116,7 +144,9 @@ async def websocket_endpoint(websocket: WebSocket):
 async def run_cleaner():
     try:
         boy = zero.Zero()
-        boy.clean_screenshots(days_old=0) 
+        boy.clean_screenshots(days_old=0)
+        # Note: We do NOT update the daily log here. 
+        # Manual clicks are "extra" cleanings, they shouldn't stop the daily schedule.
         return JSONResponse({"status": "success", "message": "Zero has swept the Desktop screenshots."})
     except Exception as e:
         return JSONResponse({"status": "error", "message": str(e)})
