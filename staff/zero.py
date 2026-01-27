@@ -8,9 +8,6 @@ TRASH_DIR = os.path.expanduser("~/.Trash")
 DESKTOP_DIR = os.path.expanduser("~/Desktop")
 
 class Zero:
-    def __init__(self):
-        self.log_msgs = []
-
     def log(self, msg):
         print(f"🟣 {msg}")
 

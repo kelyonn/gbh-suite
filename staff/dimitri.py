@@ -1,7 +1,6 @@
-import time
 import os
-import sys
 import socket
+import time
 import urllib.request
 import threading
 from urllib.error import URLError

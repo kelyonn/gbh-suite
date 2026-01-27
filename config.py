@@ -1,5 +1,3 @@
-import os
-
 # --- DIMITRI'S HIT LIST ---
 
 # Ports to watch on startup.
