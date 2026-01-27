@@ -45,7 +45,7 @@ class Gustave:
                 plugged = "⚡ Plugged In" if battery.power_plugged else "🔋 On Battery"
                 color = Colors.GREEN if battery.percent > 20 else Colors.RED
                 print(f"  🔋 Battery:       {color}{battery.percent}% ({plugged}){Colors.ENDC}")
-        except:
+        except Exception:
             pass
         print("")
 
@@ -122,7 +122,8 @@ class Gustave:
                     if res.returncode == 0:
                         lines = res.stdout.strip().splitlines()
                         docker_count = len(lines)
-                except: pass
+                except Exception:
+                    pass
 
                 dirty_count = 0
                 if os.path.exists(PROJECTS_DIR):
@@ -133,7 +134,8 @@ class Gustave:
                                 res = subprocess.run(["git", "status", "--porcelain"], cwd=repo, capture_output=True, text=True)
                                 if res.stdout.strip(): 
                                     dirty_count += 1
-                            except: pass
+                            except Exception:
+                                pass
 
                 # 2. Build Message (Simple text only)
                 status_word = "Healthy"
@@ -149,10 +151,7 @@ class Gustave:
                 if dirty_count > 0: 
                     body += f" , Uncommitted {dirty_count}"
 
-                # 3. DEBUG PRINT (This tells us if Python is calculating correctly)
-                print(f"DEBUG: Attempting to send -> [{title}] [{body}]")
-
-                # 4. Send Notification (Safe Mode)
+                # 3. Send Notification (Safe Mode)
                 # escape double quotes just in case
                 safe_body = body.replace('"', '')
                 safe_title = title.replace('"', '')
@@ -162,6 +161,7 @@ class Gustave:
             except Exception as e:
                 print(f"❌ Notification Error: {e}")
 
-    if __name__ == "__main__":
-        g = Gustave()
-        g.report()
+
+if __name__ == "__main__":
+    g = Gustave()
+    g.report()
