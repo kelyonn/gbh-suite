@@ -1,305 +1,531 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
-    <meta http-equiv="Pragma" content="no-cache">
-    <title>GBH Concierge</title>
-    <style>
-        :root {
-            --bg: #0f0f0f;
-            --surface: #1c1c1c;
-            --border: #2d2d2d;
-            --gold: #d4af37;
-            --muted: #737373;
-        }
-        * { box-sizing: border-box; }
-        body {
-            font-family: -apple-system, BlinkMacSystemFont, sans-serif;
-            background: var(--bg);
-            color: #e5e5e5;
-            margin: 0;
-            padding: 2rem;
-            min-height: 100vh;
-        }
-        .wrap { max-width: 720px; margin: 0 auto; }
-        h1 {
-            font-size: 1.25rem;
-            font-weight: 600;
-            letter-spacing: 0.08em;
-            text-transform: uppercase;
-            color: var(--gold);
-            margin: 0 0 0.5rem 0;
-            padding-bottom: 1rem;
-            border-bottom: 1px solid var(--border);
-        }
-        .metrics {
-            display: grid;
-            grid-template-columns: repeat(3, 1fr);
-            gap: 1rem;
-            margin-top: 1.5rem;
-        }
-        .metric {
-            background: var(--surface);
-            border: 1px solid var(--border);
-            border-radius: 10px;
-            padding: 1.25rem;
-            text-align: center;
-        }
-        .metric .label {
-            display: block;
-            font-size: 0.7rem;
-            letter-spacing: 0.06em;
-            text-transform: uppercase;
-            color: var(--muted);
-            margin-bottom: 0.5rem;
-        }
-        .metric .value-row {
-            display: flex;
-            align-items: baseline;
-            justify-content: center;
-            gap: 0.35rem;
-            flex-wrap: nowrap;
-        }
-        .metric .num {
-            font-size: 2rem;
-            font-weight: 700;
-            font-variant-numeric: tabular-nums;
-            line-height: 1.2;
-        }
-        .metric .unit {
-            font-size: 1rem;
-            font-weight: 600;
-        }
-        .metric .unit.small { font-size: 0.65rem; }
-        .staff-section {
-            margin-top: 1.5rem;
-            background: var(--surface);
-            border: 1px solid var(--border);
-            border-radius: 10px;
-            padding: 1.25rem;
-        }
-        .staff-section .label {
-            display: block;
-            font-size: 0.7rem;
-            letter-spacing: 0.06em;
-            text-transform: uppercase;
-            color: var(--muted);
-            margin-bottom: 0.75rem;
-        }
-        .staff-grid {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 0.75rem;
-        }
-        .staff-item {
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            gap: 0.5rem;
-            padding: 0.6rem;
-            background: #252525;
-            border-radius: 8px;
-        }
-        .staff-dot {
-            width: 10px;
-            height: 10px;
-            border-radius: 50%;
-            flex-shrink: 0;
-        }
-        .staff-dot.on { background: #22c55e; box-shadow: 0 0 6px #22c55e; }
-        .staff-dot.off { background: #ef4444; }
-        .info-section {
-            margin-top: 1.5rem;
-            background: var(--surface);
-            border: 1px solid var(--border);
-            border-radius: 10px;
-            padding: 1.25rem;
-        }
-        .info-section .label {
-            display: block;
-            font-size: 0.7rem;
-            letter-spacing: 0.06em;
-            text-transform: uppercase;
-            color: var(--muted);
-            margin-bottom: 0.5rem;
-        }
-        .info-line { margin: 0; font-size: 0.95rem; }
-        .info-line strong { color: var(--gold); }
-        .port-row {
-            display: flex;
-            flex-wrap: wrap;
-            gap: 0.5rem;
-        }
-        .port-pill {
-            display: inline-flex;
-            align-items: center;
-            gap: 0.35rem;
-            padding: 0.35rem 0.6rem;
-            background: #252525;
-            border-radius: 6px;
-            font-size: 0.85rem;
-            font-variant-numeric: tabular-nums;
-        }
-        .port-dot {
-            width: 8px;
-            height: 8px;
-            border-radius: 50%;
-            flex-shrink: 0;
-        }
-        .port-dot.on { background: #22c55e; }
-        .port-dot.off { background: #737373; }
-        .actions { margin-top: 2rem; display: flex; flex-direction: column; gap: 0.75rem; }
-        .btn {
-            width: 100%;
-            padding: 1rem 1.5rem;
-            font-size: 0.95rem;
-            font-weight: 600;
-            color: #0f0f0f;
-            background: var(--gold);
-            border: none;
-            border-radius: 10px;
-            cursor: pointer;
-            transition: opacity 0.15s;
-        }
-        .btn:hover { opacity: 0.9; }
-        #toast {
-            position: fixed;
-            left: 50%;
-            bottom: 2rem;
-            transform: translateX(-50%);
-            padding: 0.9rem 1.5rem;
-            background: var(--surface);
-            border: 1px solid var(--gold);
-            border-radius: 10px;
-            color: #e5e5e5;
-            font-size: 0.9rem;
-            visibility: hidden;
-            z-index: 100;
-        }
-        #toast.visible { visibility: visible; animation: toast-in 0.3s ease; }
-        @keyframes toast-in { from { opacity: 0; bottom: 1.5rem; } to { opacity: 1; bottom: 2rem; } }
-    </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta http-equiv="Cache-Control" content="no-store">
+<title>GBH Concierge</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg: #0a0a0a;
+  --surface: #141414;
+  --surface2: #1c1c1c;
+  --border: #242424;
+  --gold: #c9a84c;
+  --gold-dim: #8a6f2e;
+  --green: #22c55e;
+  --red: #ef4444;
+  --blue: #60a5fa;
+  --muted: #555;
+  --text: #e2e2e2;
+  --text-dim: #888;
+  --radius: 14px;
+}
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: 'Inter', -apple-system, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+  padding: 2rem 1.5rem;
+}
+.wrap { max-width: 860px; margin: 0 auto; }
+
+/* ── Header ── */
+.header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 1.5rem;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 1.75rem;
+}
+.header-left h1 {
+  font-size: 1rem;
+  font-weight: 700;
+  letter-spacing: .12em;
+  text-transform: uppercase;
+  color: var(--gold);
+}
+.header-left p {
+  font-size: .75rem;
+  color: var(--muted);
+  margin-top: .2rem;
+  letter-spacing: .04em;
+}
+.ws-dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  background: var(--muted);
+  transition: background .4s;
+}
+.ws-dot.live { background: var(--green); box-shadow: 0 0 8px var(--green); animation: pulse 2s infinite; }
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.4} }
+
+/* ── Metrics grid ── */
+.metrics {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: .85rem;
+  margin-bottom: .85rem;
+}
+@media(max-width:600px){ .metrics{ grid-template-columns: repeat(2,1fr); } }
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1.25rem 1rem;
+  position: relative;
+  overflow: hidden;
+  transition: border-color .2s;
+}
+.card:hover { border-color: var(--gold-dim); }
+.card::before {
+  content: '';
+  position: absolute; inset: 0;
+  background: linear-gradient(135deg, rgba(201,168,76,.04) 0%, transparent 60%);
+  pointer-events: none;
+}
+.card-label {
+  font-size: .65rem;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: .65rem;
+}
+.card-value {
+  font-size: 2.2rem;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--gold);
+  font-variant-numeric: tabular-nums;
+  transition: color .3s;
+}
+.card-unit {
+  font-size: .85rem;
+  font-weight: 600;
+  color: var(--gold-dim);
+  margin-left: .2rem;
+}
+.card-bar {
+  height: 3px;
+  background: var(--border);
+  border-radius: 2px;
+  margin-top: .85rem;
+  overflow: hidden;
+}
+.card-bar-fill {
+  height: 100%;
+  border-radius: 2px;
+  background: var(--gold);
+  transition: width .6s ease, background .4s;
+}
+
+/* ── Row of 2 ── */
+.row2 {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: .85rem;
+  margin-bottom: .85rem;
+}
+@media(max-width:600px){ .row2{ grid-template-columns: 1fr; } }
+
+/* ── Staff ── */
+.staff-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: .6rem;
+}
+.staff-item {
+  display: flex;
+  align-items: center;
+  gap: .55rem;
+  padding: .7rem .85rem;
+  background: var(--surface2);
+  border-radius: 10px;
+  font-size: .85rem;
+  font-weight: 500;
+}
+.sdot {
+  width: 9px; height: 9px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  transition: background .3s, box-shadow .3s;
+}
+.sdot.on  { background: var(--green); box-shadow: 0 0 7px var(--green); }
+.sdot.off { background: var(--muted); }
+
+/* ── Section label ── */
+.section-label {
+  font-size: .65rem;
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: .75rem;
+}
+
+/* ── Ports ── */
+.ports-row { display: flex; flex-wrap: wrap; gap: .5rem; }
+.port-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: .35rem;
+  padding: .35rem .7rem;
+  background: var(--surface2);
+  border-radius: 8px;
+  font-size: .8rem;
+  font-variant-numeric: tabular-nums;
+  font-weight: 500;
+}
+.pdot {
+  width: 7px; height: 7px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  transition: background .3s;
+}
+.pdot.on  { background: var(--green); }
+.pdot.off { background: var(--muted); }
+
+/* ── Serge Feed ── */
+.feed { max-height: 180px; overflow-y: auto; display: flex; flex-direction: column; gap: .45rem; }
+.feed::-webkit-scrollbar { width: 4px; }
+.feed::-webkit-scrollbar-track { background: transparent; }
+.feed::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+.feed-item {
+  display: flex;
+  align-items: center;
+  gap: .6rem;
+  font-size: .8rem;
+  color: var(--text-dim);
+  animation: slidein .3s ease;
+}
+@keyframes slidein { from{opacity:0;transform:translateX(10px)} to{opacity:1;transform:none} }
+.feed-item .fi-name { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; color: var(--text); }
+.feed-item .fi-cat  { font-size: .7rem; padding: .2rem .5rem; background: var(--border); border-radius: 5px; white-space: nowrap; }
+.feed-item .fi-time { font-size: .68rem; color: var(--muted); white-space: nowrap; }
+.feed-empty { font-size: .8rem; color: var(--muted); padding: .5rem 0; }
+
+/* ── Focus ── */
+.focus-controls { display: flex; gap: .5rem; flex-wrap: wrap; margin-bottom: .85rem; }
+.focus-btn {
+  padding: .45rem .9rem;
+  font-size: .8rem;
+  font-weight: 600;
+  font-family: inherit;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--surface2);
+  color: var(--text);
+  cursor: pointer;
+  transition: border-color .15s, background .15s;
+}
+.focus-btn:hover { border-color: var(--gold-dim); background: #222; }
+.focus-btn.stop-btn { border-color: var(--red); color: var(--red); }
+.focus-progress {
+  height: 6px;
+  background: var(--border);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.focus-progress-fill {
+  height: 100%;
+  border-radius: 3px;
+  background: linear-gradient(90deg, var(--gold-dim), var(--gold));
+  transition: width 1s linear;
+}
+.focus-timer {
+  font-size: .85rem;
+  color: var(--gold);
+  font-weight: 600;
+  margin-top: .5rem;
+  font-variant-numeric: tabular-nums;
+  min-height: 1.2em;
+}
+
+/* ── Actions ── */
+.actions { display: flex; gap: .7rem; flex-wrap: wrap; margin-top: .85rem; }
+.btn {
+  flex: 1;
+  min-width: 160px;
+  padding: .85rem 1rem;
+  font-size: .82rem;
+  font-weight: 600;
+  font-family: inherit;
+  border: none;
+  border-radius: var(--radius);
+  cursor: pointer;
+  transition: opacity .15s, transform .1s;
+}
+.btn:hover { opacity: .88; }
+.btn:active { transform: scale(.98); }
+.btn-gold  { background: var(--gold); color: #0a0a0a; }
+.btn-ghost { background: var(--surface2); color: var(--text); border: 1px solid var(--border); }
+
+/* ── Zero last run ── */
+.zero-info { font-size: .85rem; color: var(--text-dim); }
+.zero-info strong { color: var(--gold); font-weight: 600; }
+
+/* ── Toast ── */
+#toast {
+  position: fixed; left: 50%; bottom: 2rem;
+  transform: translateX(-50%);
+  padding: .8rem 1.4rem;
+  background: var(--surface2);
+  border: 1px solid var(--gold-dim);
+  border-radius: 12px;
+  font-size: .85rem;
+  color: var(--text);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity .25s, bottom .25s;
+  z-index: 999;
+  white-space: nowrap;
+}
+#toast.show { opacity: 1; bottom: 2.5rem; }
+</style>
 </head>
 <body>
-    <div class="wrap">
-        <h1>Grand Budapest Concierge</h1>
+<div class="wrap">
 
-        <div class="metrics">
-            <div class="metric">
-                <span class="label">CPU Load</span>
-                <div class="value-row">
-                    <span id="cpu-num" class="num" style="color: #d4af37;">{{ vitals.cpu_percent }}</span>
-                    <span class="unit" style="color: #d4af37;">%</span>
-                </div>
-            </div>
-            <div class="metric">
-                <span class="label">Memory</span>
-                <div class="value-row">
-                    <span id="ram-num" class="num" style="color: #d4af37;">{{ vitals.ram_percent }}</span>
-                    <span class="unit" style="color: #d4af37;">%</span>
-                </div>
-            </div>
-            <div class="metric">
-                <span class="label">Disk Free</span>
-                <div class="value-row">
-                    <span id="disk-num" class="num" style="color: #d4af37;">{{ vitals.disk_free }}</span>
-                    <span class="unit small" style="color: #d4af37;">GB</span>
-                </div>
-            </div>
-        </div>
-
-        <div class="staff-section">
-            <span class="label">Staff</span>
-            <div class="staff-grid">
-                <div class="staff-item">
-                    <span id="dot-serge" class="staff-dot {{ 'on' if vitals.staff.serge else 'off' }}"></span>
-                    <span>Serge</span>
-                </div>
-                <div class="staff-item">
-                    <span id="dot-dimitri" class="staff-dot {{ 'on' if vitals.staff.dimitri else 'off' }}"></span>
-                    <span>Dimitri</span>
-                </div>
-            </div>
-        </div>
-
-        <div class="info-section">
-            <span class="label">Zero</span>
-            <p class="info-line">Last cleaned: <strong id="zero-last">{{ vitals.zero_last_run }}</strong></p>
-        </div>
-
-        {% if vitals.ports %}
-        <div class="info-section">
-            <span class="label">Ports (Dimitri)</span>
-            <div class="port-row" id="port-row">
-                {% for p in vitals.ports %}
-                <span class="port-pill" id="port-{{ p.port }}"><span class="port-dot {{ 'on' if p.live else 'off' }}"></span> {{ p.port }}</span>
-                {% endfor %}
-            </div>
-        </div>
-        {% endif %}
-
-        <div class="actions">
-            <button type="button" class="btn" id="btn-clean">Call Zero (Clean Screenshots)</button>
-        </div>
+  <!-- Header -->
+  <div class="header">
+    <div class="header-left">
+      <h1>🏨 Grand Budapest Hotel</h1>
+      <p id="clock">—</p>
     </div>
+    <div id="ws-dot" class="ws-dot" title="WebSocket connection"></div>
+  </div>
 
-    <div id="toast" aria-live="polite"></div>
+  <!-- Metrics -->
+  <div class="metrics">
+    <div class="card">
+      <div class="card-label">CPU Load</div>
+      <div><span id="cpu-val" class="card-value">{{ "%.1f"|format(vitals.cpu_percent) }}</span><span class="card-unit">%</span></div>
+      <div class="card-bar"><div id="cpu-bar" class="card-bar-fill" style="width:{{ vitals.cpu_percent }}%"></div></div>
+    </div>
+    <div class="card">
+      <div class="card-label">Memory</div>
+      <div><span id="ram-val" class="card-value">{{ "%.1f"|format(vitals.ram_percent) }}</span><span class="card-unit">%</span></div>
+      <div class="card-bar"><div id="ram-bar" class="card-bar-fill" style="width:{{ vitals.ram_percent }}%"></div></div>
+    </div>
+    <div class="card">
+      <div class="card-label">Disk Free</div>
+      <div><span id="disk-val" class="card-value">{{ vitals.disk_free }}</span><span class="card-unit">GB</span></div>
+    </div>
+    <div class="card">
+      <div class="card-label">Battery</div>
+      {% if vitals.battery_percent is not none %}
+      <div><span id="bat-val" class="card-value">{{ vitals.battery_percent|int }}</span><span class="card-unit">%</span></div>
+      <div class="card-bar"><div id="bat-bar" class="card-bar-fill" style="width:{{ vitals.battery_percent }}%; background:{% if vitals.battery_plugged %}var(--green){% else %}var(--gold){% endif %}"></div></div>
+      {% else %}
+      <div class="card-value" style="font-size:1.1rem;color:var(--muted)">N/A</div>
+      {% endif %}
+    </div>
+  </div>
 
-    <script>
-        (function () {
-            var toast = document.getElementById('toast');
-            var btnClean = document.getElementById('btn-clean');
+  <!-- Staff + Ports -->
+  <div class="row2">
+    <div class="card">
+      <div class="section-label">Staff On Duty</div>
+      <div class="staff-grid">
+        <div class="staff-item"><span id="dot-serge"   class="sdot {{ 'on' if vitals.staff.serge else 'off' }}"></span>Serge</div>
+        <div class="staff-item"><span id="dot-dimitri" class="sdot {{ 'on' if vitals.staff.dimitri else 'off' }}"></span>Dimitri</div>
+        <div class="staff-item"><span id="dot-server"  class="sdot on"></span>Server</div>
+      </div>
+      <div style="margin-top:.85rem" class="zero-info">Serge moved <strong id="serge-today">{{ vitals.serge_moves_today }}</strong> file(s) today</div>
+    </div>
+    <div class="card">
+      <div class="section-label">Ports — Dimitri</div>
+      <div class="ports-row" id="ports-row">
+        {% for p in vitals.ports %}
+        <span class="port-pill" id="port-{{ p.port }}">
+          <span class="pdot {{ 'on' if p.live else 'off' }}"></span>{{ p.port }}
+        </span>
+        {% endfor %}
+        {% if not vitals.ports %}
+        <span style="font-size:.8rem;color:var(--muted)">No ports configured</span>
+        {% endif %}
+      </div>
+    </div>
+  </div>
 
-            function showToast(msg) {
-                toast.textContent = msg;
-                toast.classList.add('visible');
-                setTimeout(function () { toast.classList.remove('visible'); }, 3000);
-            }
+  <!-- Serge Feed + Focus -->
+  <div class="row2">
+    <div class="card">
+      <div class="section-label">Serge — Recent Moves</div>
+      <div class="feed" id="serge-feed">
+        <div class="feed-empty" id="feed-empty">Loading…</div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="section-label">Ivan — Focus Mode</div>
+      <div class="focus-controls" id="focus-controls">
+        <button class="focus-btn" onclick="startFocus(25)">25 min</button>
+        <button class="focus-btn" onclick="startFocus(50)">50 min</button>
+        <button class="focus-btn" onclick="startFocus(90)">90 min</button>
+        <button class="focus-btn stop-btn" onclick="stopFocus()">Stop</button>
+      </div>
+      <div class="focus-progress"><div id="focus-fill" class="focus-progress-fill" style="width:0%"></div></div>
+      <div class="focus-timer" id="focus-timer"></div>
+    </div>
+  </div>
 
-            function setMetric(id, value) {
-                var el = document.getElementById(id);
-                if (!el) return;
-                el.textContent = (value % 1 === 0) ? value : value.toFixed(1);
-            }
+  <!-- Zero Actions -->
+  <div class="card">
+    <div class="section-label">Zero — Maintenance &nbsp;·&nbsp; Last sweep: <strong id="zero-last">{{ vitals.zero_last_run }}</strong></div>
+    <div class="actions">
+      <button class="btn btn-gold" id="btn-clean">Sweep Screenshots</button>
+      <button class="btn btn-ghost" id="btn-old">Archive Old Downloads</button>
+      <button class="btn btn-ghost" id="btn-undo">↩ Undo Last Serge Move</button>
+    </div>
+  </div>
 
-            var proto = location.protocol === 'https:' ? 'wss:' : 'ws:';
-            var ws = new WebSocket(proto + '//' + location.host + '/ws/vitals');
+</div>
 
-            ws.onmessage = function (ev) {
-                var d = JSON.parse(ev.data);
-                setMetric('cpu-num', d.cpu_percent);
-                setMetric('ram-num', d.ram_percent);
-                setMetric('disk-num', d.disk_free);
-                document.getElementById('dot-serge').className = 'staff-dot ' + (d.staff.serge ? 'on' : 'off');
-                document.getElementById('dot-dimitri').className = 'staff-dot ' + (d.staff.dimitri ? 'on' : 'off');
-                var z = document.getElementById('zero-last');
-                if (z && d.zero_last_run) z.textContent = d.zero_last_run;
-                if (d.ports && d.ports.length) {
-                    d.ports.forEach(function (p) {
-                        var el = document.getElementById('port-' + p.port);
-                        if (el) {
-                            var dot = el.querySelector('.port-dot');
-                            if (dot) dot.className = 'port-dot ' + (p.live ? 'on' : 'off');
-                        }
-                    });
-                }
-            };
+<div id="toast"></div>
 
-            btnClean.addEventListener('click', async function () {
-                showToast('Running clean…');
-                try {
-                    var r = await fetch('/api/clean', { method: 'POST' });
-                    var j = await r.json();
-                    showToast(j.message || 'Done.');
-                    var z = document.getElementById('zero-last');
-                    if (z && j.status === 'success') z.textContent = 'today';
-                } catch (e) {
-                    showToast('Request failed.');
-                }
-            });
-        })();
-    </script>
+<script>
+(function(){
+  // ── Clock ──
+  function tick(){
+    var d = new Date();
+    document.getElementById('clock').textContent =
+      d.toLocaleDateString('en-US',{weekday:'long',day:'numeric',month:'long'}) + ' — ' +
+      d.toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit'});
+  }
+  tick(); setInterval(tick, 1000);
+
+  // ── Toast ──
+  var toastEl = document.getElementById('toast'), toastTid;
+  function toast(msg){ clearTimeout(toastTid); toastEl.textContent=msg; toastEl.classList.add('show'); toastTid=setTimeout(()=>toastEl.classList.remove('show'),3000); }
+
+  // ── Smooth number tween ──
+  function tween(el, to){
+    var from = parseFloat(el.textContent)||0, steps=12, i=0;
+    var id = setInterval(function(){
+      i++; el.textContent = (from + (to-from)*(i/steps)).toFixed(1);
+      if(i>=steps){ el.textContent=to%1===0?to:to.toFixed(1); clearInterval(id); }
+    },25);
+  }
+
+  function setBar(id, pct, color){
+    var el = document.getElementById(id); if(!el) return;
+    el.style.width = Math.min(pct,100)+'%';
+    if(color) el.style.background = color;
+    else if(pct>80) el.style.background='var(--red)';
+    else if(pct>60) el.style.background='var(--gold-dim)';
+    else el.style.background='var(--gold)';
+  }
+
+  // ── WebSocket ──
+  var wsDot = document.getElementById('ws-dot');
+  var proto = location.protocol==='https:'?'wss:':'ws:';
+  var ws; var reconnectDelay=1000;
+
+  function connect(){
+    ws = new WebSocket(proto+'//'+location.host+'/ws/vitals');
+    ws.onopen = function(){ wsDot.className='ws-dot live'; reconnectDelay=1000; };
+    ws.onclose = function(){ wsDot.className='ws-dot'; setTimeout(connect, reconnectDelay); reconnectDelay=Math.min(reconnectDelay*2,15000); };
+    ws.onmessage = function(ev){
+      var d = JSON.parse(ev.data);
+      tween(document.getElementById('cpu-val'), d.cpu_percent);
+      tween(document.getElementById('ram-val'), d.ram_percent);
+      document.getElementById('disk-val').textContent = d.disk_free;
+      setBar('cpu-bar', d.cpu_percent);
+      setBar('ram-bar', d.ram_percent);
+
+      if(d.battery_percent != null){
+        var bv = document.getElementById('bat-val');
+        if(bv) bv.textContent = Math.round(d.battery_percent);
+        setBar('bat-bar', d.battery_percent, d.battery_plugged?'var(--green)':'var(--gold)');
+      }
+
+      // Staff dots
+      ['serge','dimitri','server'].forEach(function(k){
+        var el = document.getElementById('dot-'+k); if(!el) return;
+        el.className = 'sdot '+(d.staff[k]?'on':'off');
+      });
+      document.getElementById('serge-today').textContent = d.serge_moves_today;
+
+      // Ports
+      if(d.ports) d.ports.forEach(function(p){
+        var el = document.getElementById('port-'+p.port); if(!el) return;
+        var dot = el.querySelector('.pdot'); if(!dot) return;
+        dot.className = 'pdot '+(p.live?'on':'off');
+      });
+
+      // Zero
+      var zl = document.getElementById('zero-last'); if(zl && d.zero_last_run) zl.textContent=d.zero_last_run;
+
+      // Focus
+      updateFocusUI(d.focus);
+    };
+  }
+  connect();
+
+  // ── Focus UI ──
+  var focusTotal = 0;
+  function updateFocusUI(f){
+    var fill  = document.getElementById('focus-fill');
+    var timer = document.getElementById('focus-timer');
+    if(!f || !f.active){ fill.style.width='0%'; timer.textContent=''; return; }
+    focusTotal = f.duration_min * 60;
+    var rem = f.remaining_sec;
+    var pct = focusTotal > 0 ? Math.min(100, (1 - rem/focusTotal)*100) : 0;
+    fill.style.width = pct+'%';
+    var m = Math.floor(rem/60), s = rem%60;
+    timer.textContent = m+'m '+(s<10?'0':'')+s+'s remaining';
+  }
+
+  function startFocus(min){
+    fetch('/api/focus/start',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({minutes:min})})
+      .then(r=>r.json()).then(j=>toast('🔕 Focus started: '+min+' min'));
+  }
+  function stopFocus(){
+    fetch('/api/focus/stop',{method:'POST'}).then(r=>r.json()).then(j=>toast('✅ Focus ended'));
+  }
+  window.startFocus=startFocus; window.stopFocus=stopFocus;
+
+  // ── Serge Feed ──
+  function loadFeed(){
+    fetch('/api/serge/log').then(r=>r.json()).then(function(d){
+      var feed = document.getElementById('serge-feed');
+      var empty = document.getElementById('feed-empty');
+      if(!d.moves || !d.moves.length){ if(empty) empty.textContent='No moves yet.'; return; }
+      if(empty) empty.remove();
+      feed.innerHTML='';
+      d.moves.forEach(function(m){
+        var el = document.createElement('div'); el.className='feed-item';
+        var t = new Date(m.ts); var timeStr = t.toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit'});
+        el.innerHTML='<span class="fi-name">'+m.filename+'</span>'
+          +'<span class="fi-cat">'+m.category+'</span>'
+          +'<span class="fi-time">'+timeStr+'</span>';
+        feed.prepend(el);
+      });
+    }).catch(function(){});
+  }
+  loadFeed(); setInterval(loadFeed, 5000);
+
+  // ── Buttons ──
+  document.getElementById('btn-clean').addEventListener('click',function(){
+    toast('Running sweep…');
+    fetch('/api/clean',{method:'POST'}).then(r=>r.json()).then(j=>toast(j.message||'Done'));
+  });
+  document.getElementById('btn-old').addEventListener('click',function(){
+    toast('Archiving old downloads…');
+    fetch('/api/clean/old',{method:'POST'}).then(r=>r.json()).then(j=>toast(j.message||'Done'));
+  });
+  document.getElementById('btn-undo').addEventListener('click',function(){
+    fetch('/api/serge/undo',{method:'POST'}).then(r=>r.json()).then(function(j){
+      toast(j.results&&j.results[0]?j.results[0]:'Nothing to undo');
+      loadFeed();
+    });
+  });
+
+})();
+</script>
 </body>
 </html>
