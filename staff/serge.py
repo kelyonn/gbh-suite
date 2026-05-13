@@ -1,221 +1,240 @@
+"""
+Serge v2 — Smart File Sorter
+Watches Downloads and Desktop. Logs all moves. Supports undo.
+"""
+
+import json
 import os
 import shutil
+import sys
 import time
+from datetime import datetime
+from pathlib import Path
+
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
 
-# --- CONFIGURATION ---
-SOURCE_DIR = os.path.expanduser("~/Downloads")
-PROJECTS_DIR = os.path.expanduser("~/Documents/Projects")
+# Allow running standalone
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+import config
+from staff.notify import notify
 
-DESTINATIONS = {
-    "Images": [".jpg", ".jpeg", ".png", ".gif", ".svg", ".heic", ".webp"],
-    "Documents": [".pdf", ".doc", ".docx", ".txt", ".ppt", ".pptx", ".csv", ".xlsx", ".epub"],
-    "Audio": [".mp3", ".wav", ".aac", ".flac", ".m4a"],
-    "Video": [".mp4", ".mkv", ".mov", ".avi", ".webm"],
-    "Archives": [".zip", ".rar", ".7z", ".tar", ".gz", ".iso"],
-    "Installers": [".dmg", ".pkg", ".app"],
-    "Code": [".py", ".js", ".html", ".css", ".java", ".cpp", ".c", ".sql", ".sh", ".json", ".ipynb"]
-}
+GBH_DATA     = Path.home() / ".gbh"
+MOVE_LOG     = GBH_DATA / "serge_moves.jsonl"
 
 EMOJI_MAP = {
     "Images": "🖼️", "Documents": "📝", "Audio": "🎵", "Video": "🎥",
     "Archives": "📦", "Installers": "💿", "Code": "💻", "Others": "📂"
 }
 
-# --- LOGIC ---
-def send_notification(title, message):
-    try:
-        safe_msg = message.replace('"', '\\"')
-        safe_title = title.replace('"', '\\"')
-        os.system(f"""osascript -e 'display notification "{safe_msg}" with title "{safe_title}"'""")
-    except Exception:
-        pass
 
-def make_unique(path):
-    filename, extension = os.path.splitext(path)
-    counter = 1
-    while os.path.exists(path):
-        path = f"{filename}({counter}){extension}"
-        counter += 1
-    return path
+
+
+def _log_move(src: str, dst: str, category: str):
+    GBH_DATA.mkdir(exist_ok=True)
+    entry = {
+        "ts": datetime.now().isoformat(),
+        "src": src,
+        "dst": dst,
+        "category": category,
+        "filename": os.path.basename(src),
+    }
+    with open(MOVE_LOG, "a") as f:
+        f.write(json.dumps(entry) + "\n")
+
+
+def get_recent_moves(n: int = 20) -> list[dict]:
+    if not MOVE_LOG.exists():
+        return []
+    lines = MOVE_LOG.read_text().strip().splitlines()
+    entries = []
+    for line in reversed(lines[-n * 2:]):
+        try:
+            entries.append(json.loads(line))
+        except Exception:
+            pass
+    return entries[:n]
+
+
+def undo_last_moves(n: int = 1) -> list[str]:
+    """Move the last N files back to their source. Returns list of messages."""
+    if not MOVE_LOG.exists():
+        return ["No move history found."]
+
+    lines = MOVE_LOG.read_text().strip().splitlines()
+    if not lines:
+        return ["No moves to undo."]
+
+    results = []
+    undone_indices = []
+
+    for i, line in enumerate(reversed(lines)):
+        if len(undone_indices) >= n:
+            break
+        try:
+            entry = json.loads(line)
+            dst = entry["dst"]
+            src = entry["src"]
+            if os.path.exists(dst):
+                os.makedirs(os.path.dirname(src), exist_ok=True)
+                shutil.move(dst, src)
+                results.append(f"↩️  Restored: {entry['filename']} → {os.path.dirname(src)}")
+                undone_indices.append(len(lines) - 1 - i)
+            else:
+                results.append(f"⚠️  File no longer at destination: {entry['filename']}")
+        except Exception as e:
+            results.append(f"❌ Error undoing move: {e}")
+
+    # Remove undone entries from log
+    remaining = [l for i, l in enumerate(lines) if i not in undone_indices]
+    MOVE_LOG.write_text("\n".join(remaining) + ("\n" if remaining else ""))
+
+    return results
+
+
+def _make_unique(dest_path: str, filename: str, ts: str) -> str:
+    """Produce a unique destination path using timestamp suffix."""
+    base, ext = os.path.splitext(filename)
+    path = os.path.join(dest_path, filename)
+    if not os.path.exists(path):
+        return path
+    # Use timestamp to avoid conflicts
+    return os.path.join(dest_path, f"{base}_{ts}{ext}")
+
+
+def _categorize(filename: str) -> str:
+    _, ext = os.path.splitext(filename)
+    ext = ext.lower()
+    for cat, exts in config.SERGE_DESTINATIONS.items():
+        if ext in exts:
+            return cat
+    return "Others"  # catches everything with no matching extension
+
+
+def _sort_file(file_path: str):
+    filename = os.path.basename(file_path)
+    category = _categorize(filename)
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+
+    # Destination: Code goes to Projects dir, everything else to a subfolder of the source dir
+    src_parent = os.path.dirname(file_path)
+    if category == "Code":
+        dest_dir = config.PROJECTS_DIR
+    else:
+        dest_dir = os.path.join(src_parent, category)  # includes Others
+
+    os.makedirs(dest_dir, exist_ok=True)
+    final_dest = _make_unique(dest_dir, filename, ts)
+
+    try:
+        shutil.move(file_path, final_dest)
+        icon = EMOJI_MAP.get(category, "📂")
+        _log_move(file_path, final_dest, category)
+        notify("Serge", f"{filename} → {category} {icon}")
+        print(f"✅ {filename} → {category}", flush=True)
+    except Exception as e:
+        print(f"❌ Error moving {filename}: {e}", flush=True)
+
+
+def _is_skip(filename: str) -> bool:
+    """Skip only system/hidden files and actively downloading files."""
+    return (
+        filename.startswith(".")
+        or filename == ".DS_Store"
+        or filename.endswith((".tmp", ".crdownload", ".part", ".download"))
+    )
+
 
 class SmartSorter(FileSystemEventHandler):
-    def __init__(self):
+    """Watchdog event handler — directly subclasses FileSystemEventHandler."""
+
+    def __init__(self, watch_dir: str):
         super().__init__()
-        self.processing = set()  # Track files currently being processed
-        self.processed = set()   # Track recently processed files to avoid duplicates
-        
+        self.watch_dir = os.path.abspath(watch_dir)
+        self.processing: set[str] = set()
+        self.processed: set[str] = set()
+
     def on_created(self, event):
-        """Handle new files created in Downloads"""
         if event.is_directory:
             return
-            
-        # Only process files created directly in the source directory
-        if os.path.dirname(event.src_path) != SOURCE_DIR:
+        if os.path.dirname(os.path.abspath(event.src_path)) != self.watch_dir:
             return
-            
-        self._handle_file(event.src_path)
-    
+        self._handle(event.src_path)
+
     def on_moved(self, event):
-        """Handle files moved into Downloads (ignore moves out)"""
         if event.is_directory:
             return
-            
-        # Only process files moved INTO the source directory
-        if os.path.dirname(event.dest_path) != SOURCE_DIR:
+        if os.path.dirname(os.path.abspath(event.dest_path)) != self.watch_dir:
             return
-            
-        self._handle_file(event.dest_path)
-    
-    def _handle_file(self, file_path):
-        """Process a file if it's valid and not already being processed"""
-        # Normalize path to handle symlinks
-        abs_path = os.path.abspath(file_path)
-        
-        # Skip if already processing or recently processed
+        self._handle(event.dest_path)
+
+    def _handle(self, path: str):
+        abs_path = os.path.abspath(path)
+        filename  = os.path.basename(path)
+
+        if _is_skip(filename):
+            return
         if abs_path in self.processing or abs_path in self.processed:
             return
-        
-        # Check if file exists and is in source directory
-        if not os.path.exists(file_path):
+        if not os.path.isfile(path):
             return
-        
-        if os.path.isdir(file_path):
-            return
-        
-        # Normalize the directory check
-        if os.path.dirname(abs_path) != os.path.abspath(SOURCE_DIR):
-            return
-        
-        filename = os.path.basename(file_path)
-        
-        # Skip hidden files and system files
-        if filename == ".DS_Store" or filename.startswith("."):
-            return
-        
-        # Skip incomplete downloads
-        if filename.endswith((".tmp", ".crdownload", ".part")):
-            return
-        
-        # Mark as processing
+
         self.processing.add(abs_path)
-        
         try:
-            self._sort_file(file_path, filename)
+            time.sleep(0.8)
+            if os.path.isfile(path):
+                _sort_file(path)
         finally:
-            # Remove from processing, add to processed (with timeout)
             self.processing.discard(abs_path)
             self.processed.add(abs_path)
-            # Clean up processed set periodically (keep last 100)
-            if len(self.processed) > 100:
-                # Remove oldest entries (simple FIFO approximation)
-                self.processed = set(list(self.processed)[-50:])
-    
-    def _sort_file(self, file_path, filename):
-        """Sort a file into the appropriate category"""
-        # Wait for file to be fully written (especially for downloads)
-        time.sleep(0.5)
-        
-        # Double-check file still exists and is in source directory
-        if not os.path.exists(file_path):
-            return
-        
-        abs_path = os.path.abspath(file_path)
-        if os.path.dirname(abs_path) != os.path.abspath(SOURCE_DIR):
-            return
-        
-        # Identify category by extension
-        category = "Others"
-        _, extension = os.path.splitext(filename)
-        extension = extension.lower()
-        
-        for cat, exts in DESTINATIONS.items():
-            if extension in exts:
-                category = cat
-                break
-        
-        # Determine destination directory
-        if category == "Code":
-            dest_dir = PROJECTS_DIR
-        else:
-            dest_dir = os.path.join(SOURCE_DIR, category)
-        
-        # Create destination directory if needed
-        if not os.path.exists(dest_dir):
-            os.makedirs(dest_dir)
-        
-        # Move file
-        try:
-            dest_path = os.path.join(dest_dir, filename)
-            final_dest = make_unique(dest_path)
-            shutil.move(file_path, final_dest)
-            
-            icon = EMOJI_MAP.get(category, "📂")
-            send_notification(f"Moved to {category} {icon}", filename)
-            print(f"✅ Moved {filename} -> {category}", flush=True)
-        except Exception as e:
-            print(f"❌ Error moving {filename}: {e}", flush=True)
+            if len(self.processed) > 200:
+                self.processed = set(list(self.processed)[-100:])
 
-def _sort_existing_files():
-    """Sort any existing files in Downloads on startup"""
-    if not os.path.exists(SOURCE_DIR):
-        return
-    
-    handler = SmartSorter()
-    sorted_count = 0
-    
-    try:
-        for filename in os.listdir(SOURCE_DIR):
-            file_path = os.path.join(SOURCE_DIR, filename)
-            
-            # Skip directories and hidden files
-            if os.path.isdir(file_path) or filename.startswith("."):
-                continue
-            
-            # Skip incomplete downloads
-            if filename.endswith((".tmp", ".crdownload", ".part")):
-                continue
-            
-            # Process the file
-            abs_path = os.path.abspath(file_path)
-            if abs_path not in handler.processed:
-                handler._handle_file(file_path)
-                sorted_count += 1
-    except Exception as e:
-        print(f"❌ Error sorting existing files: {e}", flush=True)
-    
-    if sorted_count > 0:
-        print(f"✅ Sorted {sorted_count} existing file(s) on startup", flush=True)
+
+def _sort_existing(watch_dir: str):
+    count = 0
+    for filename in os.listdir(watch_dir):
+        if _is_skip(filename):
+            continue
+        full = os.path.join(watch_dir, filename)
+        if os.path.isfile(full):
+            _sort_file(full)
+            count += 1
+    if count:
+        print(f"✅ Sorted {count} existing file(s) in {watch_dir}", flush=True)
+
 
 def start_watch():
-    """Start the file watcher service"""
-    # Ensure directories exist
-    if not os.path.exists(PROJECTS_DIR):
-        os.makedirs(PROJECTS_DIR)
-    
-    if not os.path.exists(SOURCE_DIR):
-        print(f"❌ Source directory does not exist: {SOURCE_DIR}", flush=True)
-        return
-    
-    # Sort existing files first
-    _sort_existing_files()
-    
-    # Set up observer for new files
-    observer = Observer()
-    handler = SmartSorter()
-    observer.schedule(handler, SOURCE_DIR, recursive=False)
-    observer.start()
-    
-    # Send startup notification
-    send_notification("Serge Active 🎩", "I am watching the door.")
-    print(f"🎩 Serge is watching {SOURCE_DIR}", flush=True)
-    
-    # Keep running
+    from watchdog.observers import Observer
+
+    GBH_DATA.mkdir(exist_ok=True)
+    os.makedirs(config.PROJECTS_DIR, exist_ok=True)
+
+    observers = []
+    for watch_dir in config.SERGE_WATCH_DIRS:
+        if not os.path.exists(watch_dir):
+            print(f"⚠️  Watch dir not found, skipping: {watch_dir}", flush=True)
+            continue
+
+        _sort_existing(watch_dir)
+
+        handler = SmartSorter(watch_dir)
+        obs = Observer()
+        obs.schedule(handler, watch_dir, recursive=False)
+        obs.start()
+        observers.append(obs)
+        print(f"🎩 Serge watching: {watch_dir}", flush=True)
+
+    notify("Serge", "Watching the door.")
+
     try:
         while True:
             time.sleep(1)
     except KeyboardInterrupt:
-        observer.stop()
+        pass
     finally:
-        observer.join()
+        for obs in observers:
+            obs.stop()
+        for obs in observers:
+            obs.join()
+
