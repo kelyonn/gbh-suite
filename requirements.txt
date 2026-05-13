@@ -1,2 +1,8 @@
-psutil==7.1.3
+# CLI dependencies
+psutil==7.1.0
 watchdog==6.0.0
+
+# Web server dependencies (server.py / gbh-server)
+fastapi==0.128.0
+uvicorn==0.40.0
+jinja2==3.1.6
