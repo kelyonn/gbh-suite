@@ -1,140 +1,153 @@
+"""
+Zero v2 — Cleanup Crew
+Screenshots, old downloads, duplicate hunter, large file finder, Trash monitor.
+"""
+
+import hashlib
 import os
 import shutil
-import hashlib
+import sys
 import time
+from pathlib import Path
 
-# --- CONFIGURATION ---
-TRASH_DIR = os.path.expanduser("~/.Trash")
-DESKTOP_DIR = os.path.expanduser("~/Desktop")
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+import config
+from staff.notify import notify
+
+TRASH_DIR = Path.home() / ".Trash"
+DESKTOP   = Path(config.DESKTOP_DIR)
+DOWNLOADS = Path(config.DOWNLOADS_DIR)
+
+
+
 
 class Zero:
-    def log(self, msg):
-        print(f"🟣 {msg}")
 
-    # --- JOB 1: SCREENSHOT SWEEPER ---
-    def clean_screenshots(self, days_old=1):
-        """Moves screenshots older than X days to Trash."""
+    def log(self, msg: str):
+        print(f"🟣 {msg}", flush=True)
+
+    def clean_screenshots(self, days_old: int = 1) -> int:
         self.log(f"Sweeping Desktop for screenshots older than {days_old} day(s)...")
-        
-        now = time.time()
-        cutoff = now - (days_old * 86400) # 86400 seconds in a day
+        cutoff = time.time() - (days_old * 86400)
         count = 0
-
-        if not os.path.exists(DESKTOP_DIR):
-            self.log("Desktop directory not found.")
-            return
-
-        for filename in os.listdir(DESKTOP_DIR):
-            # Target standard Mac screenshots
-            if "Screenshot" in filename and filename.endswith(".png"):
-                file_path = os.path.join(DESKTOP_DIR, filename)
+        for p in DESKTOP.iterdir():
+            if "Screenshot" in p.name and p.suffix == ".png":
                 try:
-                    # Check creation time
-                    if os.path.getctime(file_path) < cutoff:
-                        shutil.move(file_path, TRASH_DIR)
-                        print(f"   🗑️  Moved to Trash: {filename}")
+                    if p.stat().st_ctime < cutoff:
+                        shutil.move(str(p), str(TRASH_DIR))
+                        print(f"   🗑️  Trashed: {p.name}", flush=True)
                         count += 1
                 except Exception as e:
-                    print(f"   ❌ Error: {e}")
+                    print(f"   ❌ {e}", flush=True)
+        self.log("Desktop is clean." if count == 0 else f"Moved {count} screenshot(s) to Trash.")
+        return count
 
-        if count == 0:
-            self.log("Desktop is clean.")
-        else:
-            self.log(f"Finished. Moved {count} files to Trash.")
+    def archive_old_downloads(self, days: int | None = None) -> int:
+        days = days or config.OLD_DOWNLOADS_DAYS
+        cutoff = time.time() - (days * 86400)
+        archive_dir = Path(config.ARCHIVE_DIR) / "OldDownloads"
+        archive_dir.mkdir(parents=True, exist_ok=True)
+        self.log(f"Archiving Downloads not accessed in {days}+ days...")
+        count = 0
+        for p in DOWNLOADS.iterdir():
+            if p.name.startswith(".") or p.is_dir():
+                continue
+            try:
+                if p.stat().st_atime < cutoff:
+                    dest = archive_dir / p.name
+                    i = 1
+                    while dest.exists():
+                        dest = archive_dir / f"{p.stem}_{i}{p.suffix}"
+                        i += 1
+                    shutil.move(str(p), str(dest))
+                    count += 1
+            except Exception as e:
+                print(f"   ❌ {e}", flush=True)
+        self.log(f"Archived {count} old file(s).")
+        return count
 
-    # --- JOB 2: DUPLICATE HUNTER (SMART HASHING) ---
-    def _get_hash(self, filepath, full=False):
-        """
-        Generates MD5 hash.
-        If full=False: Reads only first 1KB (Super Fast).
-        If full=True: Reads entire file (Accurate).
-        """
+    def find_large_files(self, directory: str | None = None, threshold_mb: float | None = None) -> list[dict]:
+        directory = directory or str(Path.home())
+        threshold_mb = threshold_mb or config.LARGE_FILE_THRESHOLD_MB
+        threshold_bytes = threshold_mb * 1024 * 1024
+        self.log(f"Scanning {directory} for files > {threshold_mb:.0f}MB...")
+        results = []
+        skip = {".git", "venv", ".venv", "node_modules", "Library"}
+        for root, dirs, files in os.walk(directory):
+            dirs[:] = [d for d in dirs if d not in skip]
+            for fn in files:
+                path = os.path.join(root, fn)
+                try:
+                    size = os.path.getsize(path)
+                    if size >= threshold_bytes:
+                        results.append({"path": path, "size_mb": round(size / (1024 * 1024), 1)})
+                except OSError:
+                    pass
+        results.sort(key=lambda x: x["size_mb"], reverse=True)
+        return results
+
+    def check_trash(self) -> dict:
+        total = sum(f.stat().st_size for f in TRASH_DIR.rglob("*") if f.is_file())
+        gb = round(total / (1024 ** 3), 2)
+        if gb > config.TRASH_WARN_GB:
+            notify("Zero", "Your Trash has {gb:.1f} GB. Consider emptying it.")
+        return {"size_gb": gb, "warn": gb > config.TRASH_WARN_GB}
+
+    def _hash_file(self, path: str) -> str | None:
         hasher = hashlib.md5()
         try:
-            with open(filepath, 'rb') as f:
-                if full:
-                    # Read in chunks to save RAM
-                    while chunk := f.read(8192):
-                        hasher.update(chunk)
-                else:
-                    # Read only first 1KB
-                    chunk = f.read(1024)
+            with open(path, "rb") as f:
+                while chunk := f.read(8192):
                     hasher.update(chunk)
             return hasher.hexdigest()
         except (OSError, PermissionError):
             return None
 
-    def find_duplicates(self, directory):
-        self.log(f"Hunting for duplicates in: {directory}")
-        
-        # Phase 1: Filter by SIZE (Fastest)
-        # We only look at files that have the EXACT same byte size.
-        files_by_size = {}
-        for root, _, files in os.walk(directory):
-            for filename in files:
-                if filename.startswith(".") or filename == ".DS_Store": continue
-                
-                path = os.path.join(root, filename)
+    def find_duplicates(self, directory: str) -> list[list[str]]:
+        self.log(f"Hunting duplicates in: {directory}")
+        by_size: dict[int, list[str]] = {}
+        for root, dirs, files in os.walk(directory):
+            dirs[:] = [d for d in dirs if not d.startswith(".")]
+            for fn in files:
+                if fn.startswith("."): continue
+                path = os.path.join(root, fn)
                 try:
                     size = os.path.getsize(path)
-                    if size < 10240: continue # Ignore files smaller than 10KB
-                    
-                    if size not in files_by_size: files_by_size[size] = []
-                    files_by_size[size].append(path)
-                except OSError: pass
-
-        # Only keep lists with >1 file
-        potential_dupes = {s: p for s, p in files_by_size.items() if len(p) > 1}
-        self.log(f"Phase 1 Complete: Found {len(potential_dupes)} groups with identical sizes.")
-
-        # Phase 2: Filter by HASH (Accurate)
-        duplicates = []
-        
-        for size, paths in potential_dupes.items():
-            hashes = {}
+                    if size >= 10240:
+                        by_size.setdefault(size, []).append(path)
+                except OSError:
+                    pass
+        candidates = {s: p for s, p in by_size.items() if len(p) > 1}
+        self.log(f"Phase 1: {len(candidates)} size groups.")
+        duplicates: list[list[str]] = []
+        for paths in candidates.values():
+            hashes: dict[str, list[str]] = {}
             for path in paths:
-                # Get FULL hash to be 100% sure
-                file_hash = self._get_hash(path, full=True)
-                if not file_hash: continue
-                
-                if file_hash not in hashes: hashes[file_hash] = []
-                hashes[file_hash].append(path)
-            
-            # If multiple files share the hash, they are duplicates
-            for _, file_list in hashes.items():
-                if len(file_list) > 1:
-                    duplicates.append(file_list)
-
+                h = self._hash_file(path)
+                if h:
+                    hashes.setdefault(h, []).append(path)
+            for group in hashes.values():
+                if len(group) > 1:
+                    duplicates.append(group)
         if not duplicates:
-            self.log("No duplicates found. Your system is efficient.")
-            return
-
-        # Phase 3: Interactive Cleanup
-        print(f"\n⚠️  Found {len(duplicates)} sets of duplicates.\n")
-        
-        total_saved = 0
+            self.log("No duplicates found.")
+            return []
+        total_saved = 0.0
         for group in duplicates:
-            # Calculate size in MB
             size_mb = os.path.getsize(group[0]) / (1024 * 1024)
-            
-            print("-" * 50)
-            print(f"📦 Duplicate Group (Size: {size_mb:.2f} MB)")
+            print(f"\n📦 Duplicate group ({size_mb:.2f} MB each)")
             for i, f in enumerate(group):
                 print(f"   [{i+1}] {f}")
-            
-            choice = input("   👉 Type the number to KEEP (or 0 to skip): ")
-            
+            choice = input("   👉 Keep which? (number or 0 to skip): ").strip()
             if choice.isdigit():
                 idx = int(choice) - 1
                 if 0 <= idx < len(group):
-                    # User picked one to keep. Trash the rest.
-                    for j, path_to_trash in enumerate(group):
+                    for j, path in enumerate(group):
                         if j != idx:
                             try:
-                                shutil.move(path_to_trash, TRASH_DIR)
+                                shutil.move(path, str(TRASH_DIR))
                                 total_saved += size_mb
-                                print(f"   🗑️  Trashed: {os.path.basename(path_to_trash)}")
                             except Exception as e:
-                                print(f"   ❌ Error: {e}")
-        
-        print(f"\n✨ Cleanup Complete. You reclaimed {total_saved:.2f} MB of space.")
+                                print(f"   ❌ {e}")
+        print(f"\n✨ Reclaimed ~{total_saved:.2f} MB.")
+        return duplicates
