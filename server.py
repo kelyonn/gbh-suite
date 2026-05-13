@@ -1,6 +1,6 @@
 """
-GBH Concierge Server — Grand Budapest Hotel dashboard API.
-Serves real-time vitals, staff status, Zero cleanup, and port status via REST + WebSocket.
+GBH Concierge Server v2 — FastAPI backend for the dashboard.
+Real-time vitals, Serge feed, Ivan focus, Zero actions via REST + WebSocket.
 """
 
 from __future__ import annotations
@@ -9,8 +9,8 @@ import asyncio
 import socket
 import sys
 from contextlib import asynccontextmanager
-from dataclasses import asdict, dataclass
-from datetime import date, datetime
+from dataclasses import asdict, dataclass, field
+from datetime import datetime
 from pathlib import Path
 
 import psutil
@@ -19,120 +19,100 @@ from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse
 from fastapi.templating import Jinja2Templates
 
-# --- Paths ---
 BASE_DIR = Path(__file__).resolve().parent
-LOG_FILE = BASE_DIR / "zero_last_run.txt"
 sys.path.insert(0, str(BASE_DIR))
 
-from staff import zero
+import config
+from staff import zero as zero_mod
+from staff import serge as serge_mod
+from staff.ivan import Ivan as IvanClass
 
-try:
-    import config as gbh_config
-except ImportError:
-    gbh_config = None
+BROADCAST_INTERVAL = 0.5
+ZERO_CHECK_INTERVAL = 60
+ZERO_LOG = BASE_DIR / "zero_last_run.txt"
 
-# --- Config ---
-BROADCAST_INTERVAL_SEC = 1.0
-ZERO_DAILY_CHECK_INTERVAL_SEC = 60
 
-# --- Data models ---
-
+# ── Data Models ──────────────────────────────────────────────────
 
 @dataclass
 class StaffStatus:
-    serge: bool
-    dimitri: bool
+    serge: bool = False
+    dimitri: bool = False
+    server: bool = True
+
+
+@dataclass
+class FocusStatus:
+    active: bool = False
+    remaining_sec: int = 0
+    duration_min: int = 0
+    ends_at: str | None = None
 
 
 @dataclass
 class Vitals:
-    cpu_percent: float
-    ram_percent: float
-    disk_free_gb: int
-    staff: StaffStatus
+    cpu_percent: float = 0.0
+    ram_percent: float = 0.0
+    disk_free_gb: int = 0
+    battery_percent: float | None = None
+    battery_plugged: bool | None = None
+    staff: StaffStatus = field(default_factory=StaffStatus)
+    focus: FocusStatus = field(default_factory=FocusStatus)
     zero_last_run: str = "never"
-    ports: list | None = None
-
-    def __post_init__(self):
-        if self.ports is None:
-            self.ports = []
+    ports: list = field(default_factory=list)
+    serge_moves_today: int = 0
 
     def to_dict(self) -> dict:
         return {
             "cpu_percent": round(self.cpu_percent, 1),
             "ram_percent": round(self.ram_percent, 1),
             "disk_free": self.disk_free_gb,
+            "battery_percent": self.battery_percent,
+            "battery_plugged": self.battery_plugged,
             "staff": asdict(self.staff),
+            "focus": asdict(self.focus),
             "zero_last_run": self.zero_last_run,
             "ports": self.ports,
+            "serge_moves_today": self.serge_moves_today,
         }
 
 
-# --- Services ---
+# ── Helpers ──────────────────────────────────────────────────────
 
-
-def get_vitals() -> Vitals:
-    cpu = psutil.cpu_percent(interval=None)
-    mem = psutil.virtual_memory()
-    _, _, free_bytes = shutil.disk_usage("/")
-    free_gb = free_bytes // (2**30)
-    staff = get_staff_status()
-    return Vitals(
-        cpu_percent=cpu,
-        ram_percent=mem.percent,
-        disk_free_gb=free_gb,
-        staff=staff,
-        zero_last_run=zero_last_run_str(),
-        ports=get_port_status(),
-    )
-
-
-def get_staff_status() -> StaffStatus:
+def _get_staff() -> StaffStatus:
     serge = dimitri = False
     for proc in psutil.process_iter(["cmdline"]):
         try:
-            cmd = proc.info.get("cmdline") or []
-            cmd_str = " ".join(cmd)
-            if "main.py" not in cmd_str:
-                continue
-            if "sort" in cmd_str:
-                serge = True
-            if "patrol" in cmd_str:
-                dimitri = True
-        except (psutil.NoSuchProcess, psutil.AccessDenied, psutil.ZombieProcess):
+            cmd = " ".join(proc.info.get("cmdline") or [])
+            if "main.py" in cmd:
+                if "sort" in cmd:   serge = True
+                if "patrol" in cmd: dimitri = True
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
             pass
-    return StaffStatus(serge=serge, dimitri=dimitri)
+    return StaffStatus(serge=serge, dimitri=dimitri, server=True)
 
 
-def zero_last_run_date() -> date | None:
-    if not LOG_FILE.exists():
-        return None
-    try:
-        text = LOG_FILE.read_text().strip()
-        return datetime.strptime(text, "%Y-%m-%d").date()
-    except Exception:
-        return None
-
-
-def zero_last_run_str() -> str:
-    d = zero_last_run_date()
-    if d is None:
+def _zero_last_run() -> str:
+    if not ZERO_LOG.exists():
         return "never"
-    today = datetime.now().date()
-    if d == today:
-        return "today"
-    return d.strftime("%b %d")
+    try:
+        text = ZERO_LOG.read_text().strip()
+        d = datetime.strptime(text, "%Y-%m-%d").date()
+        today = datetime.now().date()
+        if d == today:
+            return "today"
+        return d.strftime("%b %d")
+    except Exception:
+        return "never"
 
 
-def zero_save_run_date(d: datetime) -> None:
-    LOG_FILE.write_text(d.strftime("%Y-%m-%d"))
+def _zero_save_run():
+    ZERO_LOG.write_text(datetime.now().strftime("%Y-%m-%d"))
 
 
-def get_port_status() -> list[dict]:
-    if not gbh_config or not getattr(gbh_config, "PERMANENT_PORTS", None):
-        return []
+def _get_ports() -> list[dict]:
     out = []
-    for port in gbh_config.PERMANENT_PORTS:
+    for port in config.PERMANENT_PORTS:
         live = False
         try:
             with socket.create_connection(("127.0.0.1", port), timeout=0.3):
@@ -143,66 +123,103 @@ def get_port_status() -> list[dict]:
     return out
 
 
-async def maybe_run_zero_daily() -> None:
-    today = datetime.now().date()
-    last = zero_last_run_date()
-    if last == today:
-        return
+def _serge_moves_today() -> int:
+    log = Path.home() / ".gbh" / "serge_moves.jsonl"
+    if not log.exists():
+        return 0
+    today = datetime.now().date().isoformat()
+    count = 0
+    for line in log.read_text().splitlines():
+        try:
+            import json
+            entry = json.loads(line)
+            if entry.get("ts", "").startswith(today):
+                count += 1
+        except Exception:
+            pass
+    return count
+
+
+def get_vitals() -> Vitals:
+    cpu = psutil.cpu_percent(interval=None)
+    mem = psutil.virtual_memory()
+    _, _, free = shutil.disk_usage("/")
+    free_gb = free // (2 ** 30)
+
+    bat_pct = bat_plug = None
     try:
-        z = zero.Zero()
-        z.clean_screenshots(days_old=0)
-        zero_save_run_date(datetime.now())
-        print(f"[GBH] Zero ran daily cleanup for {today}")
-    except Exception as e:
-        print(f"[GBH] Zero daily run failed: {e}")
+        bat = psutil.sensors_battery()
+        if bat:
+            bat_pct  = round(bat.percent, 1)
+            bat_plug = bat.power_plugged
+    except Exception:
+        pass
+
+    ivan = IvanClass()
+    focus_raw = ivan.status()
+
+    return Vitals(
+        cpu_percent=cpu,
+        ram_percent=mem.percent,
+        disk_free_gb=free_gb,
+        battery_percent=bat_pct,
+        battery_plugged=bat_plug,
+        staff=_get_staff(),
+        focus=FocusStatus(**focus_raw),
+        zero_last_run=_zero_last_run(),
+        ports=_get_ports(),
+        serge_moves_today=_serge_moves_today(),
+    )
 
 
-# --- WebSocket manager ---
+# ── WebSocket broadcaster ────────────────────────────────────────
 
+class Broadcaster:
+    def __init__(self):
+        self._conns: list[WebSocket] = []
 
-class VitalsBroadcaster:
-    def __init__(self) -> None:
-        self._connections: list[WebSocket] = []
-
-    async def connect(self, ws: WebSocket) -> None:
+    async def connect(self, ws: WebSocket):
         await ws.accept()
-        self._connections.append(ws)
+        self._conns.append(ws)
 
-    def disconnect(self, ws: WebSocket) -> None:
-        if ws in self._connections:
-            self._connections.remove(ws)
+    def disconnect(self, ws: WebSocket):
+        self._conns = [c for c in self._conns if c is not ws]
 
-    async def broadcast(self, payload: dict) -> None:
+    async def broadcast(self, payload: dict):
         dead = []
-        for conn in self._connections:
+        for conn in self._conns:
             try:
                 await conn.send_json(payload)
             except Exception:
                 dead.append(conn)
-        for conn in dead:
-            self.disconnect(conn)
+        for c in dead:
+            self.disconnect(c)
 
 
-broadcaster = VitalsBroadcaster()
+broadcaster = Broadcaster()
 
 
-async def broadcast_loop() -> None:
-    zero_check_counter = 0
+async def broadcast_loop():
+    zero_tick = 0
     while True:
-        if broadcaster._connections:
+        if broadcaster._conns:
             vitals = get_vitals()
             await broadcaster.broadcast(vitals.to_dict())
+        zero_tick += BROADCAST_INTERVAL
+        if zero_tick >= ZERO_CHECK_INTERVAL:
+            zero_tick = 0
+            today = datetime.now().date()
+            if _zero_last_run() not in ("today",):
+                try:
+                    z = zero_mod.Zero()
+                    z.clean_screenshots(days_old=0)
+                    _zero_save_run()
+                except Exception:
+                    pass
+        await asyncio.sleep(BROADCAST_INTERVAL)
 
-        zero_check_counter += 1
-        if zero_check_counter * BROADCAST_INTERVAL_SEC >= ZERO_DAILY_CHECK_INTERVAL_SEC:
-            zero_check_counter = 0
-            await maybe_run_zero_daily()
 
-        await asyncio.sleep(BROADCAST_INTERVAL_SEC)
-
-
-# --- App ---
-
+# ── App ──────────────────────────────────────────────────────────
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -217,22 +234,21 @@ async def lifespan(app: FastAPI):
             pass
 
 
-app = FastAPI(title="GBH Concierge", lifespan=lifespan)
+app = FastAPI(title="GBH Concierge v2", lifespan=lifespan)
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 
 
-# --- Routes ---
-
+# ── Routes ───────────────────────────────────────────────────────
 
 @app.get("/")
 def index(request: Request):
     vitals = get_vitals()
     resp = templates.TemplateResponse(
-        "dashboard.html",
-        {"request": request, "vitals": vitals.to_dict()},
+        request=request,
+        name="dashboard.html",
+        context={"vitals": vitals.to_dict()},
     )
-    resp.headers["Cache-Control"] = "no-store, no-cache, must-revalidate"
-    resp.headers["Pragma"] = "no-cache"
+    resp.headers["Cache-Control"] = "no-store"
     return resp
 
 
@@ -242,8 +258,8 @@ def api_vitals():
 
 
 @app.get("/api/health")
-def health():
-    return {"status": "ok", "service": "gbh-concierge"}
+def api_health():
+    return {"status": "ok", "service": "gbh-concierge-v2"}
 
 
 @app.websocket("/ws/vitals")
@@ -259,14 +275,60 @@ async def ws_vitals(websocket: WebSocket):
 @app.post("/api/clean")
 async def api_clean():
     try:
-        z = zero.Zero()
+        z = zero_mod.Zero()
         z.clean_screenshots(days_old=0)
-        zero_save_run_date(datetime.now())
-        return {"status": "success", "message": "Zero has swept the Desktop screenshots."}
+        _zero_save_run()
+        return {"status": "success", "message": "Zero swept the Desktop."}
     except Exception as e:
-        return JSONResponse(
-            {"status": "error", "message": str(e)},
-            status_code=500,
-        )
+        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
 
 
+@app.post("/api/clean/old")
+async def api_clean_old():
+    try:
+        z = zero_mod.Zero()
+        count = z.archive_old_downloads()
+        return {"status": "success", "message": f"Archived {count} old file(s) from Downloads."}
+    except Exception as e:
+        return JSONResponse({"status": "error", "message": str(e)}, status_code=500)
+
+
+@app.get("/api/serge/log")
+def api_serge_log():
+    return {"moves": serge_mod.get_recent_moves(20)}
+
+
+@app.post("/api/serge/undo")
+async def api_serge_undo():
+    results = serge_mod.undo_last_moves(1)
+    return {"results": results}
+
+
+@app.get("/api/focus")
+def api_focus():
+    return IvanClass().status()
+
+
+@app.post("/api/focus/start")
+async def api_focus_start(request: Request):
+    body = await request.json()
+    minutes = int(body.get("minutes", config.FOCUS_DEFAULT_MINUTES))
+    # Run in background thread so API returns immediately
+    import threading
+    iv = IvanClass()
+    t = threading.Thread(target=iv.start, args=(minutes, config.FOCUS_BLOCKLIST), daemon=True)
+    t.start()
+    return {"status": "started", "minutes": minutes}
+
+
+@app.post("/api/focus/stop")
+async def api_focus_stop():
+    IvanClass().stop()
+    return {"status": "stopped"}
+
+
+@app.get("/api/large")
+def api_large():
+    z = zero_mod.Zero()
+    files = z.find_large_files(str(Path.home()), config.LARGE_FILE_THRESHOLD_MB)
+    return {"files": files[:20]}
