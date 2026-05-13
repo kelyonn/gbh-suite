@@ -1,163 +1,198 @@
+# 🏨 Grand Budapest Hotel Suite
 
-# The Grand Budapest Hotel (GBH) Suite
+> *"There are still faint glimmers of civilization left in this barbaric slaughterhouse that was once known as humanity."*
+> — M. Gustave H.
 
-**"I just wanted to clean my Downloads folder... and then I accidentally built a hotel."**
+The Grand Budapest Hotel once stood as the finest establishment in all of Zubrowka. It ran on precision, discretion, and an unwavering commitment to the guest experience — not because anyone was watching, but because that was simply the standard.
 
-The **GBH Suite** is a modular automation system for macOS that manages the entire lifecycle of a local development environment. What started as a single script to optimize file sorting evolved into a complete architecture of background services, treating the operating system like a hotel that requires a dedicated staff to run efficiently.
-
----
-
-## The Story
-
-This project began with a simple irritation: I was wasting time manually dragging files from `~/Downloads` to `~/Documents`. I wrote a script to automate it.
-
-But once you optimize one thing, you start seeing inefficiencies everywhere.
-* Why am I manually deleting screenshots every week?
-* Why do I stare at the terminal waiting for `localhost:3000` to start?
-* Why do I type `git status` twenty times a day?
-
-The script grew. It needed to handle concurrency. It needed to handle system resources. It needed a name. The *Grand Budapest Hotel* theme wasn't the goal—it was the answer. To manage a complex system invisibly and elegantly, you don't need a script; you need a **Concierge**, a **Butler**, and a **Lobby Boy**.
+This suite borrows its staff from that world. Each tool is a character. Each character has a role. None of them ask for your attention unless something has gone wrong. They simply work — silently, in the background, around the clock — so you don't have to think about it.
 
 ---
 
-## The Staff (Architecture)
+## The Staff
 
-The suite is split into five distinct Python modules. Each "Staff Member" owns a specific domain of the OS, coordinated by a central "Reception Desk" (`main.py`).
+*The hotel does not run itself. Behind every smooth experience is a cast of people who never sleep.*
 
-### 1. Gustave (The Concierge)
-**Domain:** System Health & Status.
-* **The Problem:** Opening a terminal and not knowing the state of the machine (Disk space, active Docker containers, dirty git repos).
-* **The Solution:** Gustave runs immediately upon login. He aggregates data from `psutil`, `docker`, and `git`, providing a "Morning Briefing" via a native macOS notification. He tells me if the system is ready for work or if it needs attention.
-
-### 2. Serge (The Butler)
-**Domain:** File Organization.
-* **The Problem:** The `~/Downloads` folder is a chaotic dumping ground.
-* **The Solution:** A background daemon using `watchdog` to monitor filesystem events. Serge watches the door. As soon as a file enters, he inspects the extension and escorts it to its proper room (`/Images`, `/Docs`, `/Projects`). He even handles naming collisions automatically.
-
-### 3. Zero (The Lobby Boy)
-**Domain:** Routine Maintenance & Optimization.
-* **The Problem:** Digital clutter accumulates silently (old screenshots, duplicate files).
-* **The Solution:**
-    * **Daily Sweep:** Zero wakes up once a day to trash screenshots older than 24 hours.
-    * **Duplicate Hunter:** When summoned, Zero performs a **3-Stage Filter** (Size → Header Hash → Full Hash) to identify duplicate files with O(n) efficiency, allowing for interactive cleanup.
-
-### 4. Dimitri (The Sentinel)
-**Domain:** Monitoring & Alerts.
-* **The Problem:** "Context switching" penalty. Waiting for a server to boot or a build to finish breaks flow.
-* **The Solution:** Dimitri is a background thread manager.
-    * **The Waiter:** `gbh wait 8000` polls a local port and notifies me the second it responds.
-    * **The Patrol:** Reads a `config` file on startup and silently monitors critical ports, pinging me when my dev environment is fully online.
-
-### 5. Agatha (The Baker)
-**Domain:** Archiving & Disaster Recovery.
-* **The Problem:** Project folders are massive (thank you, `node_modules`) and hard to archive.
-* **The Solution:** Agatha wraps projects in "Mendl's Boxes" (Zip archives). She parses the directory tree and actively strips out heavy dependencies (`venv`, `.git`, `node_modules`) before zipping, turning 500MB folders into 2MB backups.
+| Character | Their Story | Their Job | When |
+|---|---|---|---|
+| **M. Gustave** | The legendary concierge. Knows everything about the state of the hotel before the guests wake up. | Morning briefing — vitals, git, ports | Login + every terminal |
+| **Serge X.** | The butler. Meticulous, fast, and completely silent. Everything in its place before you notice it wasn't. | File sorter — Downloads & Desktop | Always on |
+| **Dmitri** | He keeps watch. Nothing moves through the hotel without him knowing. | Port & log sentinel | Always on |
+| **Zero** | The lobby boy. Keeps the corridors spotless. Sweeps what others leave behind. | Screenshot & cleanup crew | Scheduled |
+| **Ivan** | Dmitri's enforcer. When you need the world to go quiet, Ivan makes it happen. | Focus mode — blocks distracting sites | On demand |
+| **Jopling** | The assassin. Silent. Precise. Appears only when something has gone badly wrong. | CPU & RAM runaway enforcer | Always on |
+| **Henckels** | The inspector. Watching the network, the exits, every unfamiliar face at the door. | Network & WiFi sentinel | Always on |
+| **Kovacs** | The lawyer. Every evening, he reviews the books. Uncommitted work does not go unnoticed. | Evening git compliance report | Daily 8pm |
+| **Clotilde** | The maid. Works through the night. By morning, every cache is clear, every trace gone. | Cache sweeper | Daily 3am |
+| **Ludwig** | The general. Once a week, a full inspection of the premises. Nothing escapes his report. | Weekly system audit | Sundays 10am |
+| **Agatha** | She kept the secret, and she kept it safe. Your configs and projects, preserved faithfully. | Project archiver & dotfile backup | On demand |
 
 ---
 
-## Installation
 
-### 1. Setup
+
+## Install
+
 ```bash
-# 1. Clone the repository
-git clone [https://github.com/yourusername/gbh-suite.git](https://github.com/yourusername/gbh-suite.git)
-cd gbh-suite
-
-# 2. Create Virtual Environment (Essential for dependency isolation)
-python3 -m venv venv
-source venv/bin/activate
-
-# 3. Install Dependencies
-pip install -r requirements.txt
-
+bash installer.sh
+source ~/.zshrc
 ```
 
-### 2. Shell Configuration
+That's it. All agents are registered as LaunchAgents and start immediately.
 
-Add this alias to your `~/.zshrc` or `~/.bashrc` to call the Reception Desk from anywhere:
-
-```bash
-alias gbh='/path/to/gbh-suite/venv/bin/python3 /path/to/gbh-suite/main.py'
-
-```
+**Requirements:** macOS, Homebrew, Python 3.11 (`brew install python@3.11`)
 
 ---
 
-## Command Reference
+## Usage
 
-Once the alias is set, you have full control over the hotel staff.
+```bash
+gbh                        # Full morning briefing (Gustave)
+gbh compact                # One-line status (auto-runs on every new terminal)
+```
 
-### 🔍 System & Status
+### Serge — File Sorter
+Automatically moves files dropped in `~/Downloads` or `~/Desktop` into subfolders:
 
-| Command | Staff Member | Description |
-| --- | --- | --- |
-| `gbh status` | **Gustave** | Displays the full colored System Health Dashboard in the terminal. |
-| `gbh status --notify` | **Gustave** | Sends a silent, one-line summary via macOS Notification (Best for startup). |
+| Extension | Destination |
+|---|---|
+| `.jpg .png .heic .webp …` | `Images/` |
+| `.pdf .doc .txt .csv …` | `Documents/` |
+| `.mp3 .wav .flac …` | `Audio/` |
+| `.mp4 .mkv .mov …` | `Video/` |
+| `.zip .dmg .iso …` | `Archives/` |
+| `.py .js .go .sh …` | `~/Documents/Projects/` |
+| anything else | `Others/` |
 
-### Cleaning & Organization
+```bash
+gbh undo [n]               # Undo last N Serge moves
+```
 
-| Command | Staff Member | Description |
-| --- | --- | --- |
-| `gbh sort` | **Serge** | Manually starts the File Sorter (if not running in background). |
-| `gbh clean` | **Zero** | Sweeps Desktop screenshots older than 24 hours to Trash. |
-| `gbh clean --dupes` | **Zero** | Scans `~/Downloads` for duplicate files. |
-| `gbh clean --dupes <path>` | **Zero** | Scans a specific folder (e.g., `~/Pictures`) for duplicates. |
+### Zero — Cleanup
+```bash
+gbh clean                  # Sweep old screenshots
+gbh clean --old [days]     # Archive Downloads older than N days
+gbh clean --dupes [dir]    # Find & remove duplicate files (interactive)
+gbh large [dir]            # Find files over 500MB
+```
 
-### Monitoring & Alerts
+### Ivan — Focus Mode
+```bash
+gbh focus [minutes]        # Block distracting sites (default: 25 min)
+gbh focus stop             # End session early
+gbh focus status           # Time remaining
+gbh focus pomodoro [n]     # Run N Pomodoro cycles (25m focus / 5m break)
+```
 
-| Command | Staff Member | Description |
-| --- | --- | --- |
-| `gbh wait <port>` | **Dimitri** | Blocks terminal until `localhost:<port>` is live (e.g., `gbh wait 3000`). |
-| `gbh wait <port> --bg` | **Dimitri** | Runs in background. Notifies you when the port is live so you can keep working. |
-| `gbh watch <file>` | **Dimitri** | Tails a log file. Notifies you if "Error" or "Exception" appears. |
-| `gbh patrol` | **Dimitri** | Reads `config.py` and starts monitoring all permanent ports/logs. |
-| `gbh stop` | **All** | Kills all background watchers (Dimitri instances). |
+Sites blocked during focus are defined in `config.py` under `FOCUS_BLOCKLIST`.
+> Ivan requires `sudo` access to modify `/etc/hosts`. You'll be prompted once.
 
-### Backup & Archiving
+### Agatha — Archiver
+```bash
+gbh pack [path]            # Zip a project (respects .gbhignore)
+gbh backup                 # Snapshot dotfiles to ~/.gbh/backups/
+gbh restore [snapshot]     # Restore a dotfile snapshot
+```
 
-| Command | Staff Member | Description |
-| --- | --- | --- |
-| `gbh pack .` | **Agatha** | Archives current folder to `~/Documents/Archives` (skipping `node_modules`). |
-| `gbh pack <path>` | **Agatha** | Archives a specific folder. |
-| `gbh backup` | **Agatha** | Backs up `.zshrc`, `.ssh/config`, and git configs to `~/Documents/Backups`. |
+### Dimitri — Sentinel
+```bash
+gbh patrol                 # Start manually (auto-started by launchd)
+gbh wait <port>            # Notify when a port opens
+gbh watch <file>           # Watch a log file for errors
+```
+
+### Dashboard
+```bash
+gbh open                   # Open web dashboard at http://127.0.0.1:2525
+```
+
+The dashboard shows live CPU, RAM, disk, battery, staff status, Serge move feed, and Ivan focus controls — updated every 0.5s via WebSocket.
 
 ---
 
-## Automation (LaunchAgents)
+## Configuration
 
-The suite is designed to run automatically using macOS `launchd`.
+All settings live in `config.py`:
 
-**1. Startup Notification (Gustave)**
-Runs at login to give a system health check.
-
-```bash
-launchctl load ~/Library/LaunchAgents/com.kalyan.gbh.gustave.plist
-
-```
-
-**2. Background Sorter (Serge)**
-Runs continuously to organize Downloads.
-
-```bash
-launchctl load ~/Library/LaunchAgents/com.kalyan.gbh.serge.plist
-
-```
-
-**3. Startup Patrol (Dimitri)**
-Reads `config.py` and watches your favorite ports/logs silently.
-
-```bash
-launchctl load ~/Library/LaunchAgents/com.kalyan.gbh.dimitri.plist
-
+```python
+SERGE_WATCH_DIRS        # Folders Serge monitors
+SERGE_DESTINATIONS      # Extension → category mapping
+FOCUS_BLOCKLIST         # Domains Ivan blocks
+CRITICAL_PORTS          # Ports Dimitri watches
+DOTFILES_TO_BACKUP      # Files Agatha backs up
+LARGE_FILE_THRESHOLD_MB # Zero large-file scan threshold
+TRASH_WARN_GB           # Zero trash size warning
 ```
 
 ---
 
-## Tech Stack
+## Notifications
 
-* **Python 3** (Core Logic)
-* **Watchdog** (Filesystem Event Monitoring)
-* **Psutil** (System Resource Management)
-* **Subprocess** (Shell Integration & Git Commands)
-* **Hashlib** (Data Integrity & Duplicate Detection)
-* **Launchd** (macOS Daemon Management)
+All notifications use [`terminal-notifier`](https://github.com/julienXX/terminal-notifier) — they appear as proper macOS notifications attributed to each character, never Script Editor. Each staff member has a distinct sound.
+
+Notifications are grouped per character in Notification Centre so they don't pile up.
+
+---
+
+## Project Structure
+
+```
+gbh/
+├── main.py               # CLI entry point — gbh <command>
+├── server.py             # FastAPI dashboard server (port 2525)
+├── config.py             # All paths, thresholds, and lists
+├── installer.sh          # One-shot setup script
+├── staff/
+│   ├── notify.py         # Shared notification layer (terminal-notifier)
+│   ├── serge.py          # File sorter
+│   ├── dimitri.py        # Port/log/process sentinel
+│   ├── gustave.py        # Morning briefing
+│   ├── zero.py           # Cleanup crew
+│   ├── ivan.py           # Focus mode
+│   ├── jopling.py        # Process enforcer
+│   ├── henckels.py       # Network sentinel
+│   ├── kovacs.py         # Git compliance
+│   ├── clotilde.py       # Cache sweeper
+│   ├── ludwig.py         # Weekly inspector
+│   └── agatha.py         # Archiver
+├── launchagents/         # Plist files (symlinked to ~/Library/LaunchAgents)
+└── templates/
+    └── dashboard.html    # Web dashboard
+```
+
+---
+
+## Runtime Data
+
+Everything lives in `~/.gbh/`:
+
+```
+~/.gbh/
+├── serge_moves.jsonl     # All Serge moves (used for undo)
+├── focus_state.json      # Active Ivan focus session
+├── known_networks.txt    # Henckels trusted WiFi networks
+├── backups/              # Agatha dotfile snapshots
+└── *_last_run.txt        # Timestamps for scheduled agents
+```
+
+---
+
+## Stopping & Restarting
+
+```bash
+gbh stop                  # Kill Serge + Dimitri background processes
+bash installer.sh         # Re-install and restart everything
+```
+
+Individual agents:
+```bash
+launchctl unload ~/Library/LaunchAgents/com.kalyan.gbh.serge.plist
+launchctl load   ~/Library/LaunchAgents/com.kalyan.gbh.serge.plist
+```
+
+Logs:
+```bash
+tail -f /tmp/gbh_serge.out
+tail -f /tmp/gbh_dimitri.out
+tail -f /tmp/gbh_server.err
+```
