@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+    <key>Label</key><string>com.kalyan.gbh.server</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/opt/homebrew/bin/python3.11</string>
+        <string>-m</string>
+        <string>uvicorn</string>
+        <string>server:app</string>
+        <string>--host</string>
+        <string>127.0.0.1</string>
+        <string>--port</string>
+        <string>2525</string>
+    </array>
+    <key>WorkingDirectory</key><string>/Users/kalyan/Documents/projects/gbh</string>
+    <key>RunAtLoad</key><true/>
+    <key>KeepAlive</key><true/>
+    <key>StandardOutPath</key><string>/tmp/gbh_server.out</string>
+    <key>StandardErrorPath</key><string>/tmp/gbh_server.err</string>
+</dict></plist>

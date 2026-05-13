@@ -1,31 +1,15 @@
 import sys
 import os
 import subprocess
-import config  # Import the "Hit List" for Dimitri
-from staff import serge, zero, gustave, dimitri, agatha
+from pathlib import Path
 
-def run_in_background():
-    """Detaches the current command into a silent background process"""
-    # Remove --bg so the new process doesn't loop infinitely
-    args = [arg for arg in sys.argv if arg != "--bg"]
-    
-    # sys.executable ensures we use the venv python
-    subprocess.Popen(
-        [sys.executable] + args, 
-        stdout=subprocess.DEVNULL, 
-        stderr=subprocess.DEVNULL,
-        start_new_session=True
-    )
-    print(f"🥷 GBH Background Service Started.")
-    print(f"   (Running '{args[1]} {args[2]}' in the shadows)")
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import config
+from staff import serge, zero, gustave, dimitri, agatha, ivan
+from staff import jopling, henckels, kovacs, clotilde, ludwig
+
 
 def main():
-    # --- 1. HANDLE BACKGROUND REQUESTS ---
-    if "--bg" in sys.argv:
-        run_in_background()
-        return
-
-    # --- 2. DEFAULT BEHAVIOR (No Args) ---
     if len(sys.argv) < 2:
         g = gustave.Gustave()
         g.report()
@@ -33,97 +17,169 @@ def main():
 
     command = sys.argv[1].lower()
 
-    # --- GUSTAVE (System Status) ---
-    if command == "status":
+    # ── Gustave ───────────────────────────────────────────────────
+    if command in ("status", "briefing"):
         g = gustave.Gustave()
         if "--notify" in sys.argv:
-            g.notify()  # The startup notification
+            g.notify()
         else:
-            g.report()  # The text dashboard
+            g.report()
 
-    # --- SERGE (File Sorter) ---
+    elif command == "compact":
+        gustave.Gustave().compact()
+
+    # ── Serge ─────────────────────────────────────────────────────
     elif command == "sort":
         serge.start_watch()
 
-    # --- ZERO (Cleanup) ---
-    elif command == "clean":
-        boy = zero.Zero()
-        
-        # Check for duplicate flag
-        if "--dupes" in sys.argv:
-            target_dir = os.path.expanduser("~/Downloads")
-            
-            # Logic to handle custom paths: gbh clean --dupes ~/Pictures
-            args = sys.argv
-            for i, arg in enumerate(args):
-                if arg == "--dupes":
-                    if i + 1 < len(args):
-                        target_dir = os.path.expanduser(args[i+1])
-            
-            boy.find_duplicates(target_dir)
-        else:
-            # Default: Sweep screenshots
-            boy.clean_screenshots(days_old=1)
+    elif command == "undo":
+        n = int(sys.argv[2]) if len(sys.argv) > 2 and sys.argv[2].isdigit() else 1
+        results = serge.undo_last_moves(n)
+        for r in results:
+            print(r)
 
-    # --- DIMITRI (Monitoring) ---
-    elif command == "wait":
-        # Usage: gbh wait 8000 [--bg]
-        if len(sys.argv) < 3:
-            print("Usage: gbh wait <port> [--bg]")
-            return
-        
-        guard = dimitri.Dimitri()
-        if sys.argv[2].isdigit():
-            guard.wait_for_port(int(sys.argv[2]))
+    # ── Zero ──────────────────────────────────────────────────────
+    elif command == "clean":
+        z = zero.Zero()
+        if "--dupes" in sys.argv:
+            target = os.path.expanduser(sys.argv[sys.argv.index("--dupes") + 1]) \
+                if sys.argv.index("--dupes") + 1 < len(sys.argv) \
+                else os.path.expanduser("~/Downloads")
+            z.find_duplicates(target)
+        elif "--old" in sys.argv:
+            days = int(sys.argv[sys.argv.index("--old") + 1]) \
+                if sys.argv.index("--old") + 1 < len(sys.argv) \
+                else config.OLD_DOWNLOADS_DAYS
+            z.archive_old_downloads(days)
         else:
-            print("❌ Port must be a number.")
+            z.clean_screenshots(days_old=1)
+
+    elif command == "large":
+        z = zero.Zero()
+        directory = sys.argv[2] if len(sys.argv) > 2 else None
+        files = z.find_large_files(directory)
+        if not files:
+            print("✨ No large files found.")
+        else:
+            print(f"\n📦 {len(files)} large file(s) found:\n")
+            for f in files[:30]:
+                print(f"  {f['size_mb']:>7.1f} MB  {f['path']}")
+
+    # ── Dimitri ───────────────────────────────────────────────────
+    elif command == "patrol":
+        guard = dimitri.Dimitri()
+        guard.start_patrol(config.PERMANENT_PORTS, config.PERMANENT_LOGS)
+
+    elif command == "wait":
+        if len(sys.argv) < 3 or not sys.argv[2].isdigit():
+            print("Usage: gbh wait <port>")
+            return
+        guard = dimitri.Dimitri()
+        guard.wait_for_port(int(sys.argv[2]))
 
     elif command == "watch":
-        # Usage: gbh watch error.log [--bg]
         if len(sys.argv) < 3:
-            print("Usage: gbh watch <file> [--bg]")
+            print("Usage: gbh watch <file>")
             return
         guard = dimitri.Dimitri()
         guard.watch_log(sys.argv[2])
 
-    elif command == "patrol":
-        # Startup routine (reads config.py)
-        guard = dimitri.Dimitri()
-        guard.start_patrol(config.PERMANENT_PORTS, config.PERMANENT_LOGS)
+    # ── Ivan ──────────────────────────────────────────────────────
+    elif command == "focus":
+        iv = ivan.Ivan()
+        if len(sys.argv) > 2 and sys.argv[2] == "stop":
+            iv.stop()
+        elif len(sys.argv) > 2 and sys.argv[2] == "status":
+            status = iv.status()
+            if status["active"]:
+                mins = status["remaining_sec"] // 60
+                secs = status["remaining_sec"] % 60
+                print(f"🔕 Focus active — {mins}m {secs}s remaining")
+            else:
+                print("✅ No active focus session.")
+        elif len(sys.argv) > 2 and sys.argv[2] == "pomodoro":
+            cycles = int(sys.argv[3]) if len(sys.argv) > 3 and sys.argv[3].isdigit() else 4
+            iv.pomodoro(config.FOCUS_BLOCKLIST, cycles)
+        else:
+            minutes = int(sys.argv[2]) if len(sys.argv) > 2 and sys.argv[2].isdigit() else config.FOCUS_DEFAULT_MINUTES
+            iv.start(minutes, config.FOCUS_BLOCKLIST)
 
-    elif command == "stop":
-        # Kill switch for background watchers
-        print("🔫 Stopping all GBH background tasks...")
-        os.system("pkill -f 'gbh wait'")
-        os.system("pkill -f 'gbh watch'")
-        os.system("pkill -f 'gbh patrol'")
-        print("   All watchers terminated.")
-
-    # --- AGATHA (Archiving) ---
+    # ── Agatha ────────────────────────────────────────────────────
     elif command == "pack":
-        # Usage: gbh pack [path]
-        target = os.getcwd()
-        if len(sys.argv) > 2:
-            target = sys.argv[2]
-        
-        baker = agatha.Agatha()
-        baker.pack_project(target)
+        target = sys.argv[2] if len(sys.argv) > 2 else os.getcwd()
+        agatha.Agatha().pack_project(target)
 
     elif command == "backup":
-        baker = agatha.Agatha()
-        baker.backup_config()
+        agatha.Agatha().backup_config()
 
-    # --- HELP MENU ---
+    elif command == "restore":
+        a = agatha.Agatha()
+        backups = a.list_backups()
+        if not backups:
+            print("No backups found.")
+            return
+        if len(sys.argv) > 2:
+            a.restore_backup(sys.argv[2])
+        else:
+            print("Available snapshots:")
+            for i, b in enumerate(backups):
+                print(f"  [{i+1}] {b}")
+            choice = input("Restore which? (number): ").strip()
+            if choice.isdigit():
+                idx = int(choice) - 1
+                if 0 <= idx < len(backups):
+                    a.restore_backup(backups[idx])
+
+    # ── New Staff ─────────────────────────────────────────────────
+    elif command == "jopling":
+        jopling.run()
+
+    elif command == "henckels":
+        henckels.run()
+
+    elif command == "kovacs":
+        kovacs.run()
+
+    elif command == "clotilde":
+        clotilde.run()
+
+    elif command == "ludwig":
+        ludwig.run()
+
+    # ── Misc ──────────────────────────────────────────────────────
+    elif command == "open":
+        subprocess.run(["open", f"http://{config.SERVER_HOST}:{config.SERVER_PORT}"])
+
+    elif command == "stop":
+        print("🔫 Stopping all GBH background tasks...")
+        os.system("pkill -f 'gbh sort'")
+        os.system("pkill -f 'gbh patrol'")
+        print("   Done.")
+
     else:
-        print("🏨 GBH Suite Commands:")
-        print("  gbh status           -> System Health Dashboard")
-        print("  gbh sort             -> Start File Sorter (Serge)")
-        print("  gbh clean            -> Sweep Screenshots")
-        print("  gbh clean --dupes    -> Find Duplicates")
-        print("  gbh wait <port>      -> Notify when Port is Ready")
-        print("  gbh watch <file>     -> Notify on Log Errors")
-        print("  gbh pack .           -> Archive Project (Smart Zip)")
-        print("  gbh backup           -> Backup Dotfiles")
+        print("""
+🏨 Grand Budapest Hotel — v2
+
+  gbh                      Morning briefing (Gustave)
+  gbh sort                 Start file sorter (Serge)
+  gbh undo [n]             Undo last N Serge moves
+  gbh clean                Sweep screenshots (Zero)
+  gbh clean --dupes [dir]  Find duplicates
+  gbh clean --old [days]   Archive old downloads
+  gbh large [dir]          Find large files
+  gbh patrol               Start port/log sentinel (Dimitri)
+  gbh wait <port>          Notify when port opens
+  gbh watch <file>         Watch log file for errors
+  gbh focus [minutes]      Start focus mode (Ivan)
+  gbh focus stop           End focus session
+  gbh focus pomodoro [n]   Pomodoro cycles
+  gbh pack [path]          Archive project (Agatha)
+  gbh backup               Backup dotfiles
+  gbh restore [snapshot]   Restore dotfiles
+  gbh open                 Open dashboard in browser
+  gbh stop                 Kill background tasks
+""")
+
 
 if __name__ == "__main__":
     main()
