@@ -72,12 +72,25 @@ def _handle_conn(conn: socket.socket) -> None:
     try:
         conn.settimeout(5)
         data = b""
-        while b"\r\n" not in data and len(data) < 2048:
+        while b"\r\n\r\n" not in data and len(data) < 4096:
             chunk = conn.recv(512)
             if not chunk:
                 break
             data += chunk
-        if data.upper().startswith(b"CONNECT"):
+        # Serve PAC file over HTTP so Chrome/Safari will actually load it
+        # (browsers reject file:// PAC URLs since ~2018)
+        if b"GET /ivan.pac" in data:
+            pac_content = PAC_FILE.read_bytes() if PAC_FILE.exists() else b""
+            response = (
+                b"HTTP/1.1 200 OK\r\n"
+                b"Content-Type: application/x-ns-proxy-autoconfig\r\n"
+                b"Content-Length: " + str(len(pac_content)).encode() + b"\r\n"
+                b"Cache-Control: no-cache\r\n"
+                b"Connection: close\r\n"
+                b"\r\n"
+            ) + pac_content
+            conn.sendall(response)
+        elif data.upper().startswith(b"CONNECT"):
             conn.sendall(_CONNECT_DENY)
         elif data:
             conn.sendall(_HTTP_RESPONSE)
@@ -195,7 +208,10 @@ def _block_sites(blocklist: list[str]) -> bool:
         print(f"❌ Could not start block server on port {BLOCK_PORT}.")
         return False
 
-    pac_url = f"file://{_write_pac(blocklist)}"
+    _write_pac(blocklist)
+    # Use HTTP URL so Chrome/Safari will actually fetch and apply the PAC.
+    # Browsers silently ignore file:// PAC URLs (security restriction since ~2018).
+    pac_url = f"http://127.0.0.1:{BLOCK_PORT}/ivan.pac"
     ok = False
     for svc in _network_services():
         try:
