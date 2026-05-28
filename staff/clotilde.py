@@ -11,6 +11,8 @@ import time
 from datetime import datetime
 from pathlib import Path
 
+import psutil
+
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from staff.notify import notify
 
@@ -28,6 +30,18 @@ def _dir_mb(path: Path) -> float:
 def _run(cmd):
     try: subprocess.run(cmd, capture_output=True, timeout=60)
     except Exception: pass
+
+
+def _xcode_running() -> bool:
+    """Skip DerivedData cleanup if Xcode or a build is in progress."""
+    targets = {"Xcode", "xcodebuild", "swift-build-tool", "swift-frontend", "clang"}
+    for p in psutil.process_iter(["name"]):
+        try:
+            if (p.info.get("name") or "") in targets:
+                return True
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            pass
+    return False
 
 
 def run():
@@ -55,10 +69,13 @@ def run():
 
     xcode_dd = Path.home() / "Library/Developer/Xcode/DerivedData"
     if (s := _dir_mb(xcode_dd)) > THRESHOLDS["xcode"]:
-        try:
-            shutil.rmtree(str(xcode_dd)); xcode_dd.mkdir()
-            freed_total += s; actions.append(f"Xcode {s:.0f}MB")
-        except Exception: pass
+        if _xcode_running():
+            print(f"   ⏸  Xcode is running — skipping DerivedData wipe ({s:.0f}MB).", flush=True)
+        else:
+            try:
+                shutil.rmtree(str(xcode_dd)); xcode_dd.mkdir()
+                freed_total += s; actions.append(f"Xcode {s:.0f}MB")
+            except Exception: pass
 
     # Old /tmp files (>7 days)
     cutoff = time.time() - 7 * 86400
