@@ -162,6 +162,11 @@ def main():
     elif command == "ludwig":
         ludwig.run()
 
+    # ── Doctor ────────────────────────────────────────────────────
+    elif command == "doctor":
+        from staff.doctor import Doctor
+        Doctor().run()
+
     # ── Misc ──────────────────────────────────────────────────────
     elif command == "open":
         subprocess.run(["open", f"http://{config.SERVER_HOST}:{config.SERVER_PORT}"])
@@ -199,6 +204,7 @@ def main():
   gbh restore [snapshot]   Restore dotfiles
   gbh open                 Open dashboard in browser
   gbh stop                 Kill background tasks
+  gbh doctor               System health check
 """)
 
 
