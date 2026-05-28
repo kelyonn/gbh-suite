@@ -95,7 +95,7 @@ def run():
         # ── WiFi network changes ──────────────────────────────────
         if ssid and ssid != last_ssid:
             if ssid not in known:
-                notify("Henckels", "Joined unknown network: {ssid}")
+                notify("Henckels", f"Joined unknown network: {ssid}")
                 print(f"⚠️  Unknown network: {ssid}", flush=True)
                 known.add(ssid)
                 _save_known_networks(known)
