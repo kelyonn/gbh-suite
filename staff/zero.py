@@ -109,7 +109,8 @@ class Zero:
         for root, dirs, files in os.walk(directory):
             dirs[:] = [d for d in dirs if not d.startswith(".")]
             for fn in files:
-                if fn.startswith("."): continue
+                if fn.startswith("."):
+                    continue
                 path = os.path.join(root, fn)
                 try:
                     size = os.path.getsize(path)

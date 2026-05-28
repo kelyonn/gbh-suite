@@ -25,7 +25,7 @@ BLOCK_PORT       = 2526   # local proxy port — must not conflict with 2525 (da
 LOOP_TICK_SEC = 5
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from staff.notify import notify as _send_notify
+from staff.notify import notify as _send_notify  # noqa: E402
 
 # ── Block-page content ────────────────────────────────────────────
 
@@ -116,7 +116,7 @@ def _run_server(stop: threading.Event) -> None:
         try:
             conn, _ = srv.accept()
             threading.Thread(target=_handle_conn, args=(conn,), daemon=True).start()
-        except socket.timeout:
+        except TimeoutError:
             continue
         except Exception:
             break
@@ -421,7 +421,7 @@ class Ivan:
         }
 
     def pomodoro(self, blocklist: list[str], cycles: int = 4) -> None:
-        from config import FOCUS_DEFAULT_MINUTES, FOCUS_BREAK_MINUTES
+        from config import FOCUS_BREAK_MINUTES, FOCUS_DEFAULT_MINUTES
         print(f"🍅 Pomodoro: {cycles} × {FOCUS_DEFAULT_MINUTES}m focus / {FOCUS_BREAK_MINUTES}m break")
         for i in range(cycles):
             print(f"\n── Cycle {i + 1}/{cycles} ──")

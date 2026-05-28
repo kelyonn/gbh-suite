@@ -4,7 +4,6 @@ Monitors internet connectivity and WiFi network changes.
 Notifies on outages, recoveries, and unknown networks. Always running.
 """
 
-import os
 import socket
 import subprocess
 import sys

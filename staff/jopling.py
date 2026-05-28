@@ -4,7 +4,6 @@ Watches for runaway processes (CPU hogs, memory leaks).
 Notifies and optionally kills offenders. Always running.
 """
 
-import os
 import sys
 import time
 from pathlib import Path

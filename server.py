@@ -6,6 +6,7 @@ Real-time vitals, Serge feed, Ivan focus, Zero actions via REST + WebSocket.
 from __future__ import annotations
 
 import asyncio
+import shutil
 import socket
 import sys
 from contextlib import asynccontextmanager
@@ -14,7 +15,6 @@ from datetime import datetime
 from pathlib import Path
 
 import psutil
-import shutil
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse
 from fastapi.templating import Jinja2Templates
@@ -22,10 +22,10 @@ from fastapi.templating import Jinja2Templates
 BASE_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(BASE_DIR))
 
-import config
-from staff import zero as zero_mod
-from staff import serge as serge_mod
-from staff.ivan import Ivan as IvanClass
+import config  # noqa: E402
+from staff import serge as serge_mod  # noqa: E402
+from staff import zero as zero_mod  # noqa: E402
+from staff.ivan import Ivan as IvanClass  # noqa: E402
 
 BROADCAST_INTERVAL = 0.5
 ZERO_CHECK_INTERVAL = 60
@@ -88,10 +88,14 @@ def _get_staff() -> StaffStatus:
         try:
             cmd = " ".join(proc.info.get("cmdline") or [])
             if "main.py" in cmd:
-                if "sort" in cmd:     serge = True
-                if "patrol" in cmd:   dimitri = True
-                if "jopling" in cmd:  jopling = True
-                if "henckels" in cmd: henckels = True
+                if "sort" in cmd:
+                    serge = True
+                if "patrol" in cmd:
+                    dimitri = True
+                if "jopling" in cmd:
+                    jopling = True
+                if "henckels" in cmd:
+                    henckels = True
         except (psutil.NoSuchProcess, psutil.AccessDenied):
             pass
     return StaffStatus(serge=serge, dimitri=dimitri, jopling=jopling, henckels=henckels, server=True)

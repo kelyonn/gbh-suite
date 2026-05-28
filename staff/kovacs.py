@@ -4,7 +4,6 @@ Runs every evening. Scans all repos for uncommitted/unpushed work.
 Sends a single summary notification. Never nags during the day.
 """
 
-import os
 import subprocess
 import sys
 from pathlib import Path
@@ -12,8 +11,6 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import config
 from staff.notify import notify
-
-
 
 
 def run():
