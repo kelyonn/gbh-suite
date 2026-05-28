@@ -223,7 +223,9 @@ body {
   transition: border-color .15s, background .15s;
 }
 .focus-btn:hover { border-color: var(--gold-dim); background: #222; }
-.focus-btn.stop-btn { border-color: var(--red); color: var(--red); }
+.focus-btn.stop-btn   { border-color: var(--red);  color: var(--red); }
+.focus-btn.pause-btn  { border-color: var(--blue); color: var(--blue); }
+.focus-btn.resume-btn { border-color: var(--green); color: var(--green); }
 .focus-progress {
   height: 6px;
   background: var(--border);
@@ -236,6 +238,10 @@ body {
   background: linear-gradient(90deg, var(--gold-dim), var(--gold));
   transition: width 1s linear;
 }
+.focus-progress-fill.paused {
+  background: var(--blue);
+  opacity: .6;
+}
 .focus-timer {
   font-size: .85rem;
   color: var(--gold);
@@ -244,6 +250,7 @@ body {
   font-variant-numeric: tabular-nums;
   min-height: 1.2em;
 }
+.focus-timer.paused { color: var(--blue); }
 
 /* ── Actions ── */
 .actions { display: flex; gap: .7rem; flex-wrap: wrap; margin-top: .85rem; }
@@ -331,9 +338,11 @@ body {
     <div class="card">
       <div class="section-label">Staff On Duty</div>
       <div class="staff-grid">
-        <div class="staff-item"><span id="dot-serge"   class="sdot {{ 'on' if vitals.staff.serge else 'off' }}"></span>Serge</div>
-        <div class="staff-item"><span id="dot-dimitri" class="sdot {{ 'on' if vitals.staff.dimitri else 'off' }}"></span>Dimitri</div>
-        <div class="staff-item"><span id="dot-server"  class="sdot on"></span>Server</div>
+        <div class="staff-item"><span id="dot-serge"    class="sdot {{ 'on' if vitals.staff.serge else 'off' }}"></span>Serge</div>
+        <div class="staff-item"><span id="dot-dimitri"  class="sdot {{ 'on' if vitals.staff.dimitri else 'off' }}"></span>Dimitri</div>
+        <div class="staff-item"><span id="dot-jopling"  class="sdot {{ 'on' if vitals.staff.jopling else 'off' }}"></span>Jopling</div>
+        <div class="staff-item"><span id="dot-henckels" class="sdot {{ 'on' if vitals.staff.henckels else 'off' }}"></span>Henckels</div>
+        <div class="staff-item"><span id="dot-server"   class="sdot on"></span>Server</div>
       </div>
       <div style="margin-top:.85rem" class="zero-info">Serge moved <strong id="serge-today">{{ vitals.serge_moves_today }}</strong> file(s) today</div>
     </div>
@@ -366,7 +375,9 @@ body {
         <button class="focus-btn" onclick="startFocus(25)">25 min</button>
         <button class="focus-btn" onclick="startFocus(50)">50 min</button>
         <button class="focus-btn" onclick="startFocus(90)">90 min</button>
-        <button class="focus-btn stop-btn" onclick="stopFocus()">Stop</button>
+        <button class="focus-btn pause-btn"  id="btn-pause"  onclick="pauseFocus()"  style="display:none">Pause</button>
+        <button class="focus-btn resume-btn" id="btn-resume" onclick="resumeFocus()" style="display:none">Resume</button>
+        <button class="focus-btn stop-btn"   onclick="stopFocus()">Stop</button>
       </div>
       <div class="focus-progress"><div id="focus-fill" class="focus-progress-fill" style="width:0%"></div></div>
       <div class="focus-timer" id="focus-timer"></div>
@@ -444,7 +455,7 @@ body {
       }
 
       // Staff dots
-      ['serge','dimitri','server'].forEach(function(k){
+      ['serge','dimitri','jopling','henckels','server'].forEach(function(k){
         var el = document.getElementById('dot-'+k); if(!el) return;
         el.className = 'sdot '+(d.staff[k]?'on':'off');
       });
@@ -469,15 +480,33 @@ body {
   // ── Focus UI ──
   var focusTotal = 0;
   function updateFocusUI(f){
-    var fill  = document.getElementById('focus-fill');
-    var timer = document.getElementById('focus-timer');
-    if(!f || !f.active){ fill.style.width='0%'; timer.textContent=''; return; }
+    var fill   = document.getElementById('focus-fill');
+    var timer  = document.getElementById('focus-timer');
+    var btnP   = document.getElementById('btn-pause');
+    var btnR   = document.getElementById('btn-resume');
+    if(!f || !f.active){
+      fill.style.width='0%'; fill.className='focus-progress-fill';
+      timer.textContent=''; timer.className='focus-timer';
+      if(btnP) btnP.style.display='none';
+      if(btnR) btnR.style.display='none';
+      return;
+    }
     focusTotal = f.duration_min * 60;
     var rem = f.remaining_sec;
     var pct = focusTotal > 0 ? Math.min(100, (1 - rem/focusTotal)*100) : 0;
-    fill.style.width = pct+'%';
     var m = Math.floor(rem/60), s = rem%60;
-    timer.textContent = m+'m '+(s<10?'0':'')+s+'s remaining';
+    var timeStr = m+'m '+(s<10?'0':'')+s+'s';
+    if(f.paused){
+      fill.style.width = pct+'%'; fill.className='focus-progress-fill paused';
+      timer.textContent = 'Paused — '+timeStr+' left'; timer.className='focus-timer paused';
+      if(btnP) btnP.style.display='none';
+      if(btnR) btnR.style.display='';
+    } else {
+      fill.style.width = pct+'%'; fill.className='focus-progress-fill';
+      timer.textContent = timeStr+' remaining'; timer.className='focus-timer';
+      if(btnP) btnP.style.display='';
+      if(btnR) btnR.style.display='none';
+    }
   }
 
   function startFocus(min){
@@ -487,7 +516,14 @@ body {
   function stopFocus(){
     fetch('/api/focus/stop',{method:'POST'}).then(r=>r.json()).then(j=>toast('✅ Focus ended'));
   }
+  function pauseFocus(){
+    fetch('/api/focus/pause',{method:'POST'}).then(r=>r.json()).then(j=>toast('⏸ Focus paused'));
+  }
+  function resumeFocus(){
+    fetch('/api/focus/resume',{method:'POST'}).then(r=>r.json()).then(j=>toast('▶ Focus resumed'));
+  }
   window.startFocus=startFocus; window.stopFocus=stopFocus;
+  window.pauseFocus=pauseFocus; window.resumeFocus=resumeFocus;
 
   // ── Serge Feed ──
   function loadFeed(){
