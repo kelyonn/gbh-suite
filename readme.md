@@ -17,9 +17,9 @@ This suite borrows its staff from that world. Each tool is a character. Each cha
 |---|---|---|---|
 | **M. Gustave** | The legendary concierge. Knows everything about the state of the hotel before the guests wake up. | Morning briefing — vitals, git, ports | Login + every terminal |
 | **Serge X.** | The butler. Meticulous, fast, and completely silent. Everything in its place before you notice it wasn't. | File sorter — Downloads & Desktop | Always on |
-| **Dmitri** | He keeps watch. Nothing moves through the hotel without him knowing. | Port & log sentinel | Always on |
+| **Dimitri** | He keeps watch. Nothing moves through the hotel without him knowing. | Port & log sentinel | Always on |
 | **Zero** | The lobby boy. Keeps the corridors spotless. Sweeps what others leave behind. | Screenshot & cleanup crew | Scheduled |
-| **Ivan** | Dmitri's enforcer. When you need the world to go quiet, Ivan makes it happen. | Focus mode — blocks distracting sites | On demand |
+| **Ivan** | Dimitri's enforcer. When you need the world to go quiet, Ivan makes it happen. | Focus mode — blocks distracting sites | On demand |
 | **Jopling** | The assassin. Silent. Precise. Appears only when something has gone badly wrong. | CPU & RAM runaway enforcer | Always on |
 | **Henckels** | The inspector. Watching the network, the exits, every unfamiliar face at the door. | Network & WiFi sentinel | Always on |
 | **Kovacs** | The lawyer. Every evening, he reviews the books. Uncommitted work does not go unnoticed. | Evening git compliance report | Daily 8pm |
@@ -79,13 +79,19 @@ gbh large [dir]            # Find files over 500MB
 ### Ivan — Focus Mode
 ```bash
 gbh focus [minutes]        # Block distracting sites (default: 25 min)
+gbh focus pause            # Pause — unblock sites, freeze the timer
+gbh focus resume           # Resume — re-block sites, continue with remaining time
 gbh focus stop             # End session early
-gbh focus status           # Time remaining
+gbh focus status           # Show active/paused state and time remaining
 gbh focus pomodoro [n]     # Run N Pomodoro cycles (25m focus / 5m break)
 ```
 
 Sites blocked during focus are defined in `config.py` under `FOCUS_BLOCKLIST`.
-> Ivan requires `sudo` access to modify `/etc/hosts`. You'll be prompted once.
+Pause/Resume is also available in the dashboard at `http://127.0.0.1:2525`.
+
+> Ivan uses a scoped passwordless sudo rule for `/etc/hosts`. Run `bash installer.sh`
+> and accept the prompt to install it once. Revoke at any time:
+> `sudo rm /etc/sudoers.d/gbh-ivan`
 
 ### Agatha — Archiver
 ```bash
