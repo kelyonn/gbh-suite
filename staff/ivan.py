@@ -1,28 +1,19 @@
 """
 Ivan — Focus Mode Manager
-Blocks distracting sites by editing /etc/hosts.
-Runs a countdown and auto-unblocks when done.
+Blocks distracting sites via a PAC (Proxy Auto-Config) file + networksetup.
+No sudo required. Works from CLI, dashboard, and background threads.
 """
 
 import json
-import os
 import subprocess
 import sys
 import time
 from datetime import datetime, timedelta
 from pathlib import Path
 
-GBH_DATA = Path.home() / ".gbh"
+GBH_DATA         = Path.home() / ".gbh"
 FOCUS_STATE_FILE = GBH_DATA / "focus_state.json"
-HOSTS_FILE = Path("/etc/hosts")
-HOSTS_MARKER_START = "# GBH_IVAN_START"
-HOSTS_MARKER_END   = "# GBH_IVAN_END"
-
-# Absolute paths so the /etc/sudoers.d/gbh-ivan rule matches exactly.
-SUDO         = "/usr/bin/sudo"
-TEE          = "/usr/bin/tee"
-DSCACHEUTIL  = "/usr/bin/dscacheutil"
-KILLALL      = "/usr/bin/killall"
+PAC_FILE         = GBH_DATA / "ivan_block.pac"
 
 LOOP_TICK_SEC = 5  # how often start() re-reads state to detect pause/resume/stop
 
@@ -30,8 +21,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from staff.notify import notify as _send_notify
 
 
-
-
+# ── State helpers ─────────────────────────────────────────────────
 
 def _read_state() -> dict | None:
     if not FOCUS_STATE_FILE.exists():
@@ -52,85 +42,114 @@ def _clear_state():
         FOCUS_STATE_FILE.unlink()
 
 
-def _block_sites(blocklist: list[str]):
-    """Add blocklist entries to /etc/hosts via sudo."""
-    lines = [HOSTS_MARKER_START]
-    for domain in blocklist:
-        lines.append(f"127.0.0.1 {domain}")
-        if not domain.startswith("www."):
-            lines.append(f"127.0.0.1 www.{domain}")
-    lines.append(HOSTS_MARKER_END)
-    block_text = "\n".join(lines) + "\n"
+# ── Network helpers ───────────────────────────────────────────────
 
+def _network_services() -> list[str]:
+    """Return all enabled network service names."""
     try:
-        current = HOSTS_FILE.read_text()
-        # Remove any existing GBH block first
-        current = _strip_gbh_block(current)
-        new_content = current.rstrip("\n") + "\n\n" + block_text
-        _write_hosts(new_content)
-        return True
-    except Exception as e:
-        print(f"❌ Could not block sites: {e}")
-        return False
+        r = subprocess.run(
+            ["networksetup", "-listallnetworkservices"],
+            capture_output=True, text=True, timeout=5,
+        )
+        services = []
+        for line in r.stdout.splitlines():
+            line = line.strip()
+            if not line or line.startswith("An asterisk") or line.startswith("*"):
+                continue
+            services.append(line)
+        return services or ["Wi-Fi"]
+    except Exception:
+        return ["Wi-Fi"]
+
+
+def _write_pac(blocklist: list[str]) -> str:
+    """Write a PAC file that sends blocked domains to a dead local proxy."""
+    domains: set[str] = set()
+    for d in blocklist:
+        d = d.lower()
+        domains.add(d)
+        if not d.startswith("www."):
+            domains.add("www." + d)
+
+    # Build JS array literal
+    entries = ",\n    ".join(f'"{d}"' for d in sorted(domains))
+    pac = f"""\
+// GBH Ivan — focus mode block list
+// Generated automatically. Do not edit while focus is active.
+function FindProxyForURL(url, host) {{
+    var blocked = [
+    {entries}
+    ];
+    var h = host.toLowerCase();
+    for (var i = 0; i < blocked.length; i++) {{
+        if (h === blocked[i] || h.endsWith("." + blocked[i])) {{
+            // Route to a local port that isn't listening — connection refused.
+            return "PROXY 127.0.0.1:9";
+        }}
+    }}
+    return "DIRECT";
+}}
+"""
+    GBH_DATA.mkdir(exist_ok=True)
+    PAC_FILE.write_text(pac)
+    return str(PAC_FILE)
+
+
+def _block_sites(blocklist: list[str]) -> bool:
+    """Enable PAC proxy on all network services. Returns True if at least one succeeded."""
+    pac_path = _write_pac(blocklist)
+    pac_url  = f"file://{pac_path}"
+    ok = False
+    for svc in _network_services():
+        try:
+            r1 = subprocess.run(
+                ["networksetup", "-setautoproxyurl", svc, pac_url],
+                capture_output=True, timeout=5,
+            )
+            r2 = subprocess.run(
+                ["networksetup", "-setautoproxystate", svc, "on"],
+                capture_output=True, timeout=5,
+            )
+            if r1.returncode == 0 and r2.returncode == 0:
+                ok = True
+        except Exception:
+            pass
+    return ok
 
 
 def _unblock_sites():
-    """Remove GBH block from /etc/hosts."""
-    try:
-        current = HOSTS_FILE.read_text()
-        new_content = _strip_gbh_block(current)
-        _write_hosts(new_content)
-        return True
-    except Exception as e:
-        print(f"❌ Could not unblock sites: {e}")
-        return False
+    """Disable PAC proxy on all network services and remove the PAC file."""
+    for svc in _network_services():
+        try:
+            subprocess.run(
+                ["networksetup", "-setautoproxystate", svc, "off"],
+                capture_output=True, timeout=5,
+            )
+        except Exception:
+            pass
+    if PAC_FILE.exists():
+        PAC_FILE.unlink(missing_ok=True)
 
 
-def _strip_gbh_block(content: str) -> str:
-    lines = content.splitlines()
-    out, inside = [], False
-    for line in lines:
-        if line.strip() == HOSTS_MARKER_START:
-            inside = True
-            continue
-        if line.strip() == HOSTS_MARKER_END:
-            inside = False
-            continue
-        if not inside:
-            out.append(line)
-    return "\n".join(out).rstrip("\n") + "\n"
-
-
-def _write_hosts(content: str):
-    """Write to /etc/hosts using sudo tee (doesn't require root shell)."""
-    proc = subprocess.run(
-        [SUDO, "-n", TEE, str(HOSTS_FILE)],
-        input=content.encode(),
-        capture_output=True,
-    )
-    if proc.returncode != 0:
-        raise PermissionError(proc.stderr.decode() or "sudo required")
-    # Flush DNS cache
-    subprocess.run([SUDO, "-n", DSCACHEUTIL, "-flushcache"], capture_output=True)
-    subprocess.run([SUDO, "-n", KILLALL, "-HUP", "mDNSResponder"], capture_output=True)
-
+# ── Ivan class ────────────────────────────────────────────────────
 
 class Ivan:
+
     def start(self, minutes: int, blocklist: list[str]):
-        """Start a focus session. Blocks until session ends, is stopped, or paused-then-resumed-then-ended."""
+        """Start a focus session. Blocks the calling process until the session ends."""
         state = _read_state()
         if state and state.get("active"):
             if state.get("paused"):
                 print("⚠️  A paused focus session exists. Use `gbh focus resume` or `gbh focus stop`.")
             else:
-                ends_at = datetime.fromisoformat(state["ends_at"])
+                ends_at   = datetime.fromisoformat(state["ends_at"])
                 remaining = max(0, int((ends_at - datetime.now()).total_seconds() // 60))
                 print(f"⚠️  Focus already active. {remaining}m remaining.")
             return
 
         print(f"🔕 Ivan: Starting {minutes}-minute focus session...")
         if not _block_sites(blocklist):
-            print("❌ Could not block sites. Run `bash installer.sh` to grant Ivan passwordless access to /etc/hosts.")
+            print("❌ Could not set proxy. Check networksetup permissions.")
             return
 
         ends_at = datetime.now() + timedelta(minutes=minutes)
@@ -148,12 +167,13 @@ class Ivan:
         _send_notify("Ivan", f"Blocking distractions for {minutes} minutes.")
         print(f"✅ Focus active until {ends_at.strftime('%I:%M %p')}. Sites blocked.")
 
-        # State-driven loop: re-reads state each tick so pause/resume/stop from another shell works.
+        # State-driven loop: re-reads state each tick so pause/resume/stop
+        # from a separate shell is picked up within LOOP_TICK_SEC seconds.
         try:
             while True:
                 s = _read_state()
                 if not s or not s.get("active"):
-                    break
+                    return          # stop() was called externally
                 if s.get("paused"):
                     time.sleep(LOOP_TICK_SEC)
                     continue
@@ -167,7 +187,7 @@ class Ivan:
         self.stop(send_notify=True)
 
     def pause(self):
-        """Pause the active session: unblock sites, freeze the remaining time."""
+        """Pause the active session: disable proxy, freeze the timer."""
         state = _read_state()
         if not state or not state.get("active"):
             print("ℹ️  No active focus session.")
@@ -176,13 +196,15 @@ class Ivan:
             print("ℹ️  Focus is already paused.")
             return
 
-        ends_at = datetime.fromisoformat(state["ends_at"])
+        ends_at   = datetime.fromisoformat(state["ends_at"])
         remaining = max(0, int((ends_at - datetime.now()).total_seconds()))
 
         _unblock_sites()
-        state["paused"] = True
-        state["paused_at"] = datetime.now().isoformat()
-        state["remaining_at_pause_sec"] = remaining
+        state.update({
+            "paused": True,
+            "paused_at": datetime.now().isoformat(),
+            "remaining_at_pause_sec": remaining,
+        })
         _write_state(state)
 
         mins, secs = divmod(remaining, 60)
@@ -190,7 +212,7 @@ class Ivan:
         print(f"⏸️  Focus paused — {mins}m {secs}s left. Sites unblocked.")
 
     def resume(self):
-        """Resume a paused session: re-block sites, continue with remaining time."""
+        """Resume a paused session: re-enable proxy, continue with remaining time."""
         state = _read_state()
         if not state or not state.get("active"):
             print("ℹ️  No focus session to resume.")
@@ -206,14 +228,16 @@ class Ivan:
             return
 
         if not _block_sites(state.get("blocklist", [])):
-            print("❌ Could not re-block sites.")
+            print("❌ Could not re-enable proxy.")
             return
 
         new_ends_at = datetime.now() + timedelta(seconds=remaining)
-        state["paused"] = False
-        state["paused_at"] = None
-        state["remaining_at_pause_sec"] = None
-        state["ends_at"] = new_ends_at.isoformat()
+        state.update({
+            "paused": False,
+            "paused_at": None,
+            "remaining_at_pause_sec": None,
+            "ends_at": new_ends_at.isoformat(),
+        })
         _write_state(state)
 
         mins, secs = divmod(remaining, 60)
@@ -221,13 +245,13 @@ class Ivan:
         print(f"▶️  Focus resumed until {new_ends_at.strftime('%I:%M %p')}.")
 
     def stop(self, send_notify: bool = False):
-        """End focus session and unblock sites."""
+        """End the focus session and disable the proxy."""
         state = _read_state()
         if not state or not state.get("active"):
             print("ℹ️  No active focus session.")
             return
 
-        # Only unblock if not already unblocked by pause.
+        # Only unblock if sites are currently blocked (not if already paused/unblocked).
         if not state.get("paused"):
             _unblock_sites()
         _clear_state()
@@ -237,10 +261,11 @@ class Ivan:
         print("✅ Focus session ended. Sites unblocked.")
 
     def status(self) -> dict:
-        """Return focus status dict for dashboard/CLI."""
+        """Return focus status dict. Safe to call from any context."""
         state = _read_state()
         if not state or not state.get("active"):
-            return {"active": False, "paused": False, "remaining_sec": 0, "duration_min": 0, "ends_at": None}
+            return {"active": False, "paused": False, "remaining_sec": 0,
+                    "duration_min": 0, "ends_at": None}
 
         if state.get("paused"):
             return {
@@ -251,13 +276,19 @@ class Ivan:
                 "ends_at": state.get("ends_at"),
             }
 
-        ends_at = datetime.fromisoformat(state["ends_at"])
+        ends_at   = datetime.fromisoformat(state["ends_at"])
         remaining = max(0, int((ends_at - datetime.now()).total_seconds()))
 
-        # Don't try to unblock from status() — that requires sudo and may be called
-        # from contexts (server, dashboard) where sudo can't prompt. Just report.
+        if remaining == 0:
+            # Session expired (e.g. Mac restarted mid-session). Clean up safely —
+            # no sudo needed since we're just toggling networksetup.
+            _unblock_sites()
+            _clear_state()
+            return {"active": False, "paused": False, "remaining_sec": 0,
+                    "duration_min": 0, "ends_at": None}
+
         return {
-            "active": remaining > 0,
+            "active": True,
             "paused": False,
             "remaining_sec": remaining,
             "duration_min": state.get("duration_min", 25),
@@ -265,15 +296,15 @@ class Ivan:
         }
 
     def pomodoro(self, blocklist: list[str], cycles: int = 4):
-        """Run pomodoro cycles: 25 min focus → 5 min break × N."""
+        """Run N Pomodoro cycles: focus → short break, repeat."""
         from config import FOCUS_DEFAULT_MINUTES, FOCUS_BREAK_MINUTES
-        print(f"🍅 Ivan: Starting Pomodoro ({cycles} cycles × {FOCUS_DEFAULT_MINUTES}m focus / {FOCUS_BREAK_MINUTES}m break)")
+        print(f"🍅 Ivan: Starting Pomodoro — {cycles} × {FOCUS_DEFAULT_MINUTES}m focus / {FOCUS_BREAK_MINUTES}m break")
         for i in range(cycles):
-            print(f"\n── Cycle {i+1}/{cycles}: Focus ──")
+            print(f"\n── Cycle {i + 1}/{cycles}: Focus ──")
             self.start(FOCUS_DEFAULT_MINUTES, blocklist)
             if i < cycles - 1:
                 _send_notify("Ivan", f"Take {FOCUS_BREAK_MINUTES} minutes. Back soon.")
-                print(f"☕ Break for {FOCUS_BREAK_MINUTES} minutes...")
+                print(f"☕ Break for {FOCUS_BREAK_MINUTES} minutes…")
                 time.sleep(FOCUS_BREAK_MINUTES * 60)
         _send_notify("Ivan", f"All {cycles} cycles done. Excellent focus!")
         print("\n🎉 Pomodoro complete!")

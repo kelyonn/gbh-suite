@@ -53,13 +53,6 @@ else
 fi
 
 
-# 5. Opt-in: passwordless sudo for Ivan focus mode
-echo ""
-read -r -p "🔐 Install passwordless sudo for Ivan focus mode? [y/N] " ans
-if [[ "$ans" =~ ^[Yy]$ ]]; then
-    bash "$GBH_DIR/scripts/install_ivan_sudoers.sh"
-fi
-
 echo ""
 echo "✅ Installation complete!"
 echo ""
