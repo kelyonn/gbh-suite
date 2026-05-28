@@ -326,7 +326,7 @@ async def api_focus_start(request: Request):
     # short yield to let the thread get scheduled before we read it back.
     import threading
     iv = IvanClass()
-    t = threading.Thread(target=iv.start, args=(minutes, config.FOCUS_BLOCKLIST), daemon=True)
+    t = threading.Thread(target=iv.start, args=(minutes, config.FOCUS_BLOCKLIST, config.FOCUS_BLOCKED_APPS), daemon=True)
     t.start()
     await asyncio.sleep(0.2)   # let thread write state file
     return IvanClass().status()

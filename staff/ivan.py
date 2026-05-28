@@ -8,6 +8,7 @@ local proxy, which returns an HTTP 403 block page (or refuses the CONNECT
 tunnel for HTTPS). Because the proxy IS listening there is no DIRECT fallback.
 """
 
+import signal
 import socket
 import subprocess
 import sys
@@ -15,6 +16,8 @@ import threading
 import time
 from datetime import datetime, timedelta
 from pathlib import Path
+
+import psutil
 
 GBH_DATA         = Path.home() / ".gbh"
 FOCUS_STATE_FILE = GBH_DATA / "focus_state.json"
@@ -260,11 +263,40 @@ def _clear_state() -> None:
     delete_json(FOCUS_STATE_FILE)
 
 
+# ── App-blocker helpers ───────────────────────────────────────────
+
+def _suspend_apps(app_names: list[str]) -> dict[str, int]:
+    """SIGSTOP each named app. Returns {process_name: pid} for later resume.
+
+    Suspended processes cannot run, send notifications, or consume CPU.
+    Only suspends the first matching process per name (the main process).
+    """
+    suspended: dict[str, int] = {}
+    for proc in psutil.process_iter(["name", "pid"]):
+        try:
+            name = proc.info.get("name") or ""
+            if name in app_names and name not in suspended:
+                proc.send_signal(signal.SIGSTOP)
+                suspended[name] = proc.info["pid"]
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            pass
+    return suspended
+
+
+def _resume_apps(pid_map: dict[str, int]) -> None:
+    """SIGCONT each previously suspended process."""
+    for name, pid in pid_map.items():
+        try:
+            psutil.Process(pid).send_signal(signal.SIGCONT)
+        except (psutil.NoSuchProcess, psutil.AccessDenied):
+            pass  # already gone — that's fine
+
+
 # ── Ivan class ────────────────────────────────────────────────────
 
 class Ivan:
 
-    def start(self, minutes: int, blocklist: list[str]) -> None:
+    def start(self, minutes: int, blocklist: list[str], blocked_apps: list[str] | None = None) -> None:
         state = _read_state()
         if state and state.get("active"):
             if state.get("paused"):
@@ -286,6 +318,8 @@ class Ivan:
             "ends_at": ends_at.isoformat(),
             "duration_min": minutes,
             "blocklist": blocklist,
+            "blocked_apps": blocked_apps or [],
+            "suspended_app_pids": {},
             "paused": False,
             "paused_at": None,
             "remaining_at_pause_sec": None,
@@ -294,6 +328,16 @@ class Ivan:
         if not _block_sites(blocklist):
             _clear_state()
             return
+
+        # Suspend distracting apps
+        if blocked_apps:
+            pids = _suspend_apps(blocked_apps)
+            if pids:
+                names = ", ".join(pids.keys())
+                print(f"   ⏸  Suspended: {names}")
+                state2 = _read_state() or {}
+                state2["suspended_app_pids"] = pids
+                _write_state(state2)
 
         _send_notify("Ivan", f"Blocking distractions for {minutes} minutes.")
         print(f"✅ Focus active until {ends_at.strftime('%I:%M %p')}. Sites blocked.")
@@ -327,16 +371,19 @@ class Ivan:
         remaining = max(0, int((ends_at - datetime.now()).total_seconds()))
 
         _unblock_sites()
+        # Resume suspended apps during pause
+        _resume_apps(state.get("suspended_app_pids") or {})
         state.update({
             "paused": True,
             "paused_at": datetime.now().isoformat(),
             "remaining_at_pause_sec": remaining,
+            "suspended_app_pids": {},
         })
         _write_state(state)
 
         mins, secs = divmod(remaining, 60)
         _send_notify("Ivan", f"Paused — {mins}m {secs}s left.")
-        print(f"⏸️  Paused — {mins}m {secs}s left. Sites unblocked.")
+        print(f"⏸️  Paused — {mins}m {secs}s left. Sites and apps unblocked.")
 
     def resume(self) -> None:
         state = _read_state()
@@ -356,12 +403,16 @@ class Ivan:
         if not _block_sites(state.get("blocklist", [])):
             return
 
+        # Re-suspend apps on resume
+        pids = _suspend_apps(state.get("blocked_apps") or [])
+
         new_ends_at = datetime.now() + timedelta(seconds=remaining)
         state.update({
             "paused": False,
             "paused_at": None,
             "remaining_at_pause_sec": None,
             "ends_at": new_ends_at.isoformat(),
+            "suspended_app_pids": pids,
         })
         _write_state(state)
 
@@ -377,11 +428,13 @@ class Ivan:
 
         if not state.get("paused"):
             _unblock_sites()
+        # Always resume apps on stop (even if paused, pids may still be set)
+        _resume_apps(state.get("suspended_app_pids") or {})
         _clear_state()
 
         if send_notify:
-            _send_notify("Ivan", "Great work. Sites unblocked.")
-        print("✅ Session ended. Sites unblocked.")
+            _send_notify("Ivan", "Great work. Sites and apps unblocked.")
+        print("✅ Session ended. Sites and apps unblocked.")
 
     def status(self) -> dict:
         state = _read_state()
