@@ -8,7 +8,6 @@ local proxy, which returns an HTTP 403 block page (or refuses the CONNECT
 tunnel for HTTPS). Because the proxy IS listening there is no DIRECT fallback.
 """
 
-import json
 import socket
 import subprocess
 import sys
@@ -26,6 +25,7 @@ LOOP_TICK_SEC = 5
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from staff.notify import notify as _send_notify  # noqa: E402
+from staff.state import delete_json, read_json, write_json  # noqa: E402
 
 # ── Block-page content ────────────────────────────────────────────
 
@@ -246,24 +246,18 @@ def _unblock_sites() -> None:
 
 
 # ── State helpers ─────────────────────────────────────────────────
+# Thin wrappers so callers don't need to import state.py directly.
 
 def _read_state() -> dict | None:
-    if not FOCUS_STATE_FILE.exists():
-        return None
-    try:
-        return json.loads(FOCUS_STATE_FILE.read_text())
-    except Exception:
-        return None
+    return read_json(FOCUS_STATE_FILE)
 
 
-def _write_state(state: dict) -> None:
-    GBH_DATA.mkdir(exist_ok=True)
-    FOCUS_STATE_FILE.write_text(json.dumps(state))
+def _write_state(data: dict) -> None:
+    write_json(FOCUS_STATE_FILE, data)
 
 
 def _clear_state() -> None:
-    if FOCUS_STATE_FILE.exists():
-        FOCUS_STATE_FILE.unlink()
+    delete_json(FOCUS_STATE_FILE)
 
 
 # ── Ivan class ────────────────────────────────────────────────────
