@@ -18,6 +18,14 @@ HOSTS_FILE = Path("/etc/hosts")
 HOSTS_MARKER_START = "# GBH_IVAN_START"
 HOSTS_MARKER_END   = "# GBH_IVAN_END"
 
+# Absolute paths so the /etc/sudoers.d/gbh-ivan rule matches exactly.
+SUDO         = "/usr/bin/sudo"
+TEE          = "/usr/bin/tee"
+DSCACHEUTIL  = "/usr/bin/dscacheutil"
+KILLALL      = "/usr/bin/killall"
+
+LOOP_TICK_SEC = 5  # how often start() re-reads state to detect pause/resume/stop
+
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from staff.notify import notify as _send_notify
 
@@ -96,30 +104,33 @@ def _strip_gbh_block(content: str) -> str:
 def _write_hosts(content: str):
     """Write to /etc/hosts using sudo tee (doesn't require root shell)."""
     proc = subprocess.run(
-        ["sudo", "tee", str(HOSTS_FILE)],
+        [SUDO, "-n", TEE, str(HOSTS_FILE)],
         input=content.encode(),
         capture_output=True,
     )
     if proc.returncode != 0:
-        raise PermissionError(proc.stderr.decode())
+        raise PermissionError(proc.stderr.decode() or "sudo required")
     # Flush DNS cache
-    subprocess.run(["sudo", "dscacheutil", "-flushcache"], capture_output=True)
-    subprocess.run(["sudo", "killall", "-HUP", "mDNSResponder"], capture_output=True)
+    subprocess.run([SUDO, "-n", DSCACHEUTIL, "-flushcache"], capture_output=True)
+    subprocess.run([SUDO, "-n", KILLALL, "-HUP", "mDNSResponder"], capture_output=True)
 
 
 class Ivan:
     def start(self, minutes: int, blocklist: list[str]):
-        """Start a focus session."""
+        """Start a focus session. Blocks until session ends, is stopped, or paused-then-resumed-then-ended."""
         state = _read_state()
         if state and state.get("active"):
-            ends_at = datetime.fromisoformat(state["ends_at"])
-            remaining = max(0, int((ends_at - datetime.now()).total_seconds() // 60))
-            print(f"⚠️  Focus already active. {remaining}m remaining.")
+            if state.get("paused"):
+                print("⚠️  A paused focus session exists. Use `gbh focus resume` or `gbh focus stop`.")
+            else:
+                ends_at = datetime.fromisoformat(state["ends_at"])
+                remaining = max(0, int((ends_at - datetime.now()).total_seconds() // 60))
+                print(f"⚠️  Focus already active. {remaining}m remaining.")
             return
 
         print(f"🔕 Ivan: Starting {minutes}-minute focus session...")
         if not _block_sites(blocklist):
-            print("❌ Could not block sites. Try running with sudo once to grant tee access.")
+            print("❌ Could not block sites. Run `bash installer.sh` to grant Ivan passwordless access to /etc/hosts.")
             return
 
         ends_at = datetime.now() + timedelta(minutes=minutes)
@@ -129,19 +140,85 @@ class Ivan:
             "ends_at": ends_at.isoformat(),
             "duration_min": minutes,
             "blocklist": blocklist,
+            "paused": False,
+            "paused_at": None,
+            "remaining_at_pause_sec": None,
         })
 
         _send_notify("Ivan", f"Blocking distractions for {minutes} minutes.")
         print(f"✅ Focus active until {ends_at.strftime('%I:%M %p')}. Sites blocked.")
 
-        # Wait and auto-unblock
+        # State-driven loop: re-reads state each tick so pause/resume/stop from another shell works.
         try:
-            while datetime.now() < ends_at:
-                time.sleep(30)
+            while True:
+                s = _read_state()
+                if not s or not s.get("active"):
+                    break
+                if s.get("paused"):
+                    time.sleep(LOOP_TICK_SEC)
+                    continue
+                ends_at = datetime.fromisoformat(s["ends_at"])
+                if datetime.now() >= ends_at:
+                    break
+                time.sleep(LOOP_TICK_SEC)
         except KeyboardInterrupt:
             pass
 
         self.stop(send_notify=True)
+
+    def pause(self):
+        """Pause the active session: unblock sites, freeze the remaining time."""
+        state = _read_state()
+        if not state or not state.get("active"):
+            print("ℹ️  No active focus session.")
+            return
+        if state.get("paused"):
+            print("ℹ️  Focus is already paused.")
+            return
+
+        ends_at = datetime.fromisoformat(state["ends_at"])
+        remaining = max(0, int((ends_at - datetime.now()).total_seconds()))
+
+        _unblock_sites()
+        state["paused"] = True
+        state["paused_at"] = datetime.now().isoformat()
+        state["remaining_at_pause_sec"] = remaining
+        _write_state(state)
+
+        mins, secs = divmod(remaining, 60)
+        _send_notify("Ivan", f"Paused. {mins}m {secs}s left.")
+        print(f"⏸️  Focus paused — {mins}m {secs}s left. Sites unblocked.")
+
+    def resume(self):
+        """Resume a paused session: re-block sites, continue with remaining time."""
+        state = _read_state()
+        if not state or not state.get("active"):
+            print("ℹ️  No focus session to resume.")
+            return
+        if not state.get("paused"):
+            print("ℹ️  Focus is already running.")
+            return
+
+        remaining = int(state.get("remaining_at_pause_sec") or 0)
+        if remaining <= 0:
+            print("ℹ️  No time left on this session. Ending it.")
+            _clear_state()
+            return
+
+        if not _block_sites(state.get("blocklist", [])):
+            print("❌ Could not re-block sites.")
+            return
+
+        new_ends_at = datetime.now() + timedelta(seconds=remaining)
+        state["paused"] = False
+        state["paused_at"] = None
+        state["remaining_at_pause_sec"] = None
+        state["ends_at"] = new_ends_at.isoformat()
+        _write_state(state)
+
+        mins, secs = divmod(remaining, 60)
+        _send_notify("Ivan", f"Resumed. {mins}m {secs}s to go.")
+        print(f"▶️  Focus resumed until {new_ends_at.strftime('%I:%M %p')}.")
 
     def stop(self, send_notify: bool = False):
         """End focus session and unblock sites."""
@@ -150,7 +227,9 @@ class Ivan:
             print("ℹ️  No active focus session.")
             return
 
-        _unblock_sites()
+        # Only unblock if not already unblocked by pause.
+        if not state.get("paused"):
+            _unblock_sites()
         _clear_state()
 
         if send_notify:
@@ -161,19 +240,25 @@ class Ivan:
         """Return focus status dict for dashboard/CLI."""
         state = _read_state()
         if not state or not state.get("active"):
-            return {"active": False, "remaining_sec": 0, "duration_min": 0, "ends_at": None}
+            return {"active": False, "paused": False, "remaining_sec": 0, "duration_min": 0, "ends_at": None}
+
+        if state.get("paused"):
+            return {
+                "active": True,
+                "paused": True,
+                "remaining_sec": int(state.get("remaining_at_pause_sec") or 0),
+                "duration_min": state.get("duration_min", 25),
+                "ends_at": state.get("ends_at"),
+            }
 
         ends_at = datetime.fromisoformat(state["ends_at"])
         remaining = max(0, int((ends_at - datetime.now()).total_seconds()))
 
-        if remaining == 0:
-            # Session expired — clean up silently
-            _unblock_sites()
-            _clear_state()
-            return {"active": False, "remaining_sec": 0, "duration_min": 0, "ends_at": None}
-
+        # Don't try to unblock from status() — that requires sudo and may be called
+        # from contexts (server, dashboard) where sudo can't prompt. Just report.
         return {
-            "active": True,
+            "active": remaining > 0,
+            "paused": False,
             "remaining_sec": remaining,
             "duration_min": state.get("duration_min", 25),
             "ends_at": state.get("ends_at"),
