@@ -208,6 +208,59 @@ body {
 .feed-item .fi-time { font-size: .68rem; color: var(--muted); white-space: nowrap; }
 .feed-empty { font-size: .8rem; color: var(--muted); padding: .5rem 0; }
 
+/* ── Focus history stats ── */
+.focus-stats {
+  display: flex;
+  align-items: baseline;
+  gap: 1rem;
+  margin-bottom: .9rem;
+  padding-bottom: .75rem;
+  border-bottom: 1px solid var(--border);
+}
+.focus-stat-val {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: var(--gold);
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+}
+.focus-stat-label {
+  font-size: .65rem;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  color: var(--muted);
+  margin-top: .2rem;
+}
+.focus-chart {
+  display: flex;
+  align-items: flex-end;
+  gap: 4px;
+  height: 32px;
+  margin-top: .6rem;
+}
+.focus-bar {
+  flex: 1;
+  border-radius: 3px 3px 0 0;
+  background: var(--gold-dim);
+  opacity: .7;
+  min-height: 3px;
+  transition: height .4s ease, opacity .2s;
+  position: relative;
+}
+.focus-bar.today { background: var(--gold); opacity: 1; }
+.focus-bar:hover { opacity: 1; }
+.focus-chart-labels {
+  display: flex;
+  gap: 4px;
+  margin-top: 3px;
+}
+.focus-chart-labels span {
+  flex: 1;
+  text-align: center;
+  font-size: .58rem;
+  color: var(--muted);
+}
+
 /* ── Focus ── */
 .focus-presets { display: flex; gap: .5rem; flex-wrap: wrap; margin-bottom: .6rem; }
 .focus-custom  { display: flex; gap: .5rem; align-items: center; }
@@ -393,6 +446,22 @@ body {
     </div>
     <div class="card">
       <div class="section-label">Ivan — Focus Mode</div>
+
+      <!-- History stats -->
+      <div id="focus-history-block">
+        <div class="focus-stats">
+          <div>
+            <div class="focus-stat-val" id="stat-today">—</div>
+            <div class="focus-stat-label">Today</div>
+          </div>
+          <div>
+            <div class="focus-stat-val" id="stat-week">—</div>
+            <div class="focus-stat-label">This week</div>
+          </div>
+        </div>
+        <div class="focus-chart" id="focus-chart"></div>
+        <div class="focus-chart-labels" id="focus-chart-labels"></div>
+      </div>
 
       <!-- Shown when no session is active -->
       <div id="start-controls">
@@ -591,6 +660,48 @@ body {
   });
   window.startFocus=startFocus; window.startCustom=startCustom;
   window.stopFocus=stopFocus; window.pauseFocus=pauseFocus; window.resumeFocus=resumeFocus;
+
+  // ── Focus History ──
+  function fmtDuration(sec){
+    var h = Math.floor(sec/3600), m = Math.floor((sec%3600)/60);
+    if(h > 0) return h+'h '+(m > 0 ? m+'m' : '');
+    if(m > 0) return m+'m';
+    return '<1m';
+  }
+  function loadHistory(){
+    fetch('/api/focus/history?days=7').then(r=>r.json()).then(function(d){
+      if(!d.history || !d.history.length) return;
+      var hist = d.history;
+
+      // Today and week totals
+      var todaySec = hist[hist.length-1].total_sec || 0;
+      var weekSec  = hist.reduce(function(a,b){ return a + (b.total_sec||0); }, 0);
+      document.getElementById('stat-today').textContent = todaySec > 0 ? fmtDuration(todaySec) : '—';
+      document.getElementById('stat-week').textContent  = weekSec  > 0 ? fmtDuration(weekSec)  : '—';
+
+      // Bar chart
+      var chart  = document.getElementById('focus-chart');
+      var labels = document.getElementById('focus-chart-labels');
+      var maxSec = Math.max.apply(null, hist.map(function(h){ return h.total_sec||0; })) || 1;
+      var today  = hist[hist.length-1].date;
+      chart.innerHTML = ''; labels.innerHTML = '';
+      var days = ['Su','Mo','Tu','We','Th','Fr','Sa'];
+      hist.forEach(function(h){
+        var pct = Math.max(4, Math.round(((h.total_sec||0) / maxSec) * 100));
+        var bar = document.createElement('div');
+        bar.className = 'focus-bar' + (h.date===today ? ' today' : '');
+        bar.style.height = pct+'%';
+        bar.title = h.date + ': ' + fmtDuration(h.total_sec||0);
+        chart.appendChild(bar);
+        var lbl = document.createElement('span');
+        var d = new Date(h.date+'T12:00:00');
+        lbl.textContent = days[d.getDay()];
+        labels.appendChild(lbl);
+      });
+    }).catch(function(){});
+  }
+  loadHistory();
+  setInterval(loadHistory, 60000); // refresh every minute
 
   // ── Serge Feed ──
   function loadFeed(){
