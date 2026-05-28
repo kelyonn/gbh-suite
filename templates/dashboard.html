@@ -209,7 +209,9 @@ body {
 .feed-empty { font-size: .8rem; color: var(--muted); padding: .5rem 0; }
 
 /* ── Focus ── */
-.focus-controls { display: flex; gap: .5rem; flex-wrap: wrap; margin-bottom: .85rem; }
+.focus-presets { display: flex; gap: .5rem; flex-wrap: wrap; margin-bottom: .6rem; }
+.focus-custom  { display: flex; gap: .5rem; align-items: center; }
+.focus-session { display: flex; gap: .5rem; flex-wrap: wrap; margin-bottom: .85rem; }
 .focus-btn {
   padding: .45rem .9rem;
   font-size: .8rem;
@@ -221,16 +223,36 @@ body {
   color: var(--text);
   cursor: pointer;
   transition: border-color .15s, background .15s;
+  white-space: nowrap;
 }
 .focus-btn:hover { border-color: var(--gold-dim); background: #222; }
-.focus-btn.stop-btn   { border-color: var(--red);  color: var(--red); }
-.focus-btn.pause-btn  { border-color: var(--blue); color: var(--blue); }
+.focus-btn.start-btn  { border-color: var(--gold-dim); color: var(--gold); }
+.focus-btn.start-btn:hover { background: rgba(201,168,76,.08); }
+.focus-btn.stop-btn   { border-color: var(--red);   color: var(--red); }
+.focus-btn.pause-btn  { border-color: var(--blue);  color: var(--blue); }
 .focus-btn.resume-btn { border-color: var(--green); color: var(--green); }
+.focus-input {
+  width: 120px;
+  padding: .42rem .75rem;
+  font-size: .8rem;
+  font-family: inherit;
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  color: var(--text);
+  outline: none;
+  transition: border-color .15s;
+}
+.focus-input:focus { border-color: var(--gold-dim); }
+.focus-input::placeholder { color: var(--muted); }
+.focus-input::-webkit-inner-spin-button,
+.focus-input::-webkit-outer-spin-button { -webkit-appearance: none; }
 .focus-progress {
   height: 6px;
   background: var(--border);
   border-radius: 3px;
   overflow: hidden;
+  margin-top: .4rem;
 }
 .focus-progress-fill {
   height: 100%;
@@ -371,14 +393,27 @@ body {
     </div>
     <div class="card">
       <div class="section-label">Ivan — Focus Mode</div>
-      <div class="focus-controls" id="focus-controls">
-        <button class="focus-btn" onclick="startFocus(25)">25 min</button>
-        <button class="focus-btn" onclick="startFocus(50)">50 min</button>
-        <button class="focus-btn" onclick="startFocus(90)">90 min</button>
-        <button class="focus-btn pause-btn"  id="btn-pause"  onclick="pauseFocus()"  style="display:none">Pause</button>
-        <button class="focus-btn resume-btn" id="btn-resume" onclick="resumeFocus()" style="display:none">Resume</button>
-        <button class="focus-btn stop-btn"   onclick="stopFocus()">Stop</button>
+
+      <!-- Shown when no session is active -->
+      <div id="start-controls">
+        <div class="focus-presets">
+          <button class="focus-btn start-btn" onclick="startFocus(25)">25 min</button>
+          <button class="focus-btn start-btn" onclick="startFocus(50)">50 min</button>
+          <button class="focus-btn start-btn" onclick="startFocus(90)">90 min</button>
+        </div>
+        <div class="focus-custom">
+          <input type="number" id="custom-min" class="focus-input" min="1" max="480" placeholder="Custom min…">
+          <button class="focus-btn start-btn" onclick="startCustom()">Start</button>
+        </div>
       </div>
+
+      <!-- Shown only when a session is running -->
+      <div id="session-controls" class="focus-session" style="display:none">
+        <button class="focus-btn pause-btn"  id="btn-pause"  onclick="pauseFocus()">Pause</button>
+        <button class="focus-btn resume-btn" id="btn-resume" onclick="resumeFocus()" style="display:none">Resume</button>
+        <button class="focus-btn stop-btn"   id="btn-stop"   onclick="stopFocus()">Stop</button>
+      </div>
+
       <div class="focus-progress"><div id="focus-fill" class="focus-progress-fill" style="width:0%"></div></div>
       <div class="focus-timer" id="focus-timer"></div>
     </div>
@@ -478,24 +513,32 @@ body {
   connect();
 
   // ── Focus UI ──
-  var focusTotal = 0;
   function updateFocusUI(f){
-    var fill   = document.getElementById('focus-fill');
-    var timer  = document.getElementById('focus-timer');
-    var btnP   = document.getElementById('btn-pause');
-    var btnR   = document.getElementById('btn-resume');
+    var fill     = document.getElementById('focus-fill');
+    var timer    = document.getElementById('focus-timer');
+    var startCtl = document.getElementById('start-controls');
+    var sessCtl  = document.getElementById('session-controls');
+    var btnP     = document.getElementById('btn-pause');
+    var btnR     = document.getElementById('btn-resume');
+
     if(!f || !f.active){
       fill.style.width='0%'; fill.className='focus-progress-fill';
       timer.textContent=''; timer.className='focus-timer';
-      if(btnP) btnP.style.display='none';
-      if(btnR) btnR.style.display='none';
+      if(startCtl) startCtl.style.display='';
+      if(sessCtl)  sessCtl.style.display='none';
       return;
     }
-    focusTotal = f.duration_min * 60;
-    var rem = f.remaining_sec;
-    var pct = focusTotal > 0 ? Math.min(100, (1 - rem/focusTotal)*100) : 0;
+
+    // Hide start controls, show session controls
+    if(startCtl) startCtl.style.display='none';
+    if(sessCtl)  sessCtl.style.display='';
+
+    var total = f.duration_min * 60;
+    var rem   = f.remaining_sec;
+    var pct   = total > 0 ? Math.min(100, (1 - rem/total)*100) : 0;
     var m = Math.floor(rem/60), s = rem%60;
     var timeStr = m+'m '+(s<10?'0':'')+s+'s';
+
     if(f.paused){
       fill.style.width = pct+'%'; fill.className='focus-progress-fill paused';
       timer.textContent = 'Paused — '+timeStr+' left'; timer.className='focus-timer paused';
@@ -511,19 +554,43 @@ body {
 
   function startFocus(min){
     fetch('/api/focus/start',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({minutes:min})})
-      .then(r=>r.json()).then(j=>toast('🔕 Focus started: '+min+' min'));
+      .then(r=>r.json())
+      .then(function(){ toast('🔕 Focus started: '+min+' min'); })
+      .catch(function(){ toast('❌ Could not start focus'); });
+  }
+  function startCustom(){
+    var input = document.getElementById('custom-min');
+    var min = parseInt(input.value, 10);
+    if(!min || min < 1 || min > 480){
+      toast('⚠️ Enter a number between 1 and 480'); return;
+    }
+    input.value = '';
+    startFocus(min);
   }
   function stopFocus(){
-    fetch('/api/focus/stop',{method:'POST'}).then(r=>r.json()).then(j=>toast('✅ Focus ended'));
+    fetch('/api/focus/stop',{method:'POST'})
+      .then(r=>r.json())
+      .then(function(){ toast('✅ Focus ended'); })
+      .catch(function(){ toast('❌ Could not stop focus'); });
   }
   function pauseFocus(){
-    fetch('/api/focus/pause',{method:'POST'}).then(r=>r.json()).then(j=>toast('⏸ Focus paused'));
+    fetch('/api/focus/pause',{method:'POST'})
+      .then(r=>r.json())
+      .then(function(){ toast('⏸ Focus paused'); })
+      .catch(function(){ toast('❌ Could not pause focus'); });
   }
   function resumeFocus(){
-    fetch('/api/focus/resume',{method:'POST'}).then(r=>r.json()).then(j=>toast('▶ Focus resumed'));
+    fetch('/api/focus/resume',{method:'POST'})
+      .then(r=>r.json())
+      .then(function(){ toast('▶ Focus resumed'); })
+      .catch(function(){ toast('❌ Could not resume focus'); });
   }
-  window.startFocus=startFocus; window.stopFocus=stopFocus;
-  window.pauseFocus=pauseFocus; window.resumeFocus=resumeFocus;
+  // Allow Enter key in custom input to trigger start
+  document.getElementById('custom-min').addEventListener('keydown', function(e){
+    if(e.key==='Enter') startCustom();
+  });
+  window.startFocus=startFocus; window.startCustom=startCustom;
+  window.stopFocus=stopFocus; window.pauseFocus=pauseFocus; window.resumeFocus=resumeFocus;
 
   // ── Serge Feed ──
   function loadFeed(){

@@ -282,9 +282,9 @@ class Ivan:
             return
 
         print(f"🔕 Ivan: Starting {minutes}-minute focus session…")
-        if not _block_sites(blocklist):
-            return
 
+        # Write state BEFORE the slow networksetup calls so the dashboard
+        # can reflect the session immediately; roll back on failure.
         ends_at = datetime.now() + timedelta(minutes=minutes)
         _write_state({
             "active": True,
@@ -296,6 +296,10 @@ class Ivan:
             "paused_at": None,
             "remaining_at_pause_sec": None,
         })
+
+        if not _block_sites(blocklist):
+            _clear_state()
+            return
 
         _send_notify("Ivan", f"Blocking distractions for {minutes} minutes.")
         print(f"✅ Focus active until {ends_at.strftime('%I:%M %p')}. Sites blocked.")
