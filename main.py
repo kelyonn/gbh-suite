@@ -1,12 +1,23 @@
-import sys
 import os
 import subprocess
+import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import config
-from staff import serge, zero, gustave, dimitri, agatha, ivan
-from staff import jopling, henckels, kovacs, clotilde, ludwig
+from staff import (
+    agatha,
+    clotilde,
+    dimitri,
+    gustave,
+    henckels,
+    ivan,
+    jopling,
+    kovacs,
+    ludwig,
+    serge,
+    zero,
+)
 
 
 def main():

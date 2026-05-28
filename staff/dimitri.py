@@ -10,15 +10,12 @@ import sys
 import threading
 import time
 import urllib.request
-from collections import defaultdict, deque
+from collections import deque
 from pathlib import Path
-from urllib.error import URLError
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 import config
 from staff.notify import notify
-
-
 
 
 class Dimitri:
@@ -62,7 +59,7 @@ class Dimitri:
         cooldown = 60  # seconds between repeated alerts for same file
 
         try:
-            with open(filepath, "r") as f:
+            with open(filepath) as f:
                 f.seek(0, 2)
                 while True:
                     line = f.readline()

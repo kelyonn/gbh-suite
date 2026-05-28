@@ -1,0 +1,8 @@
+target-version = "py311"
+line-length = 100
+
+[lint]
+select = ["E", "F", "W", "I", "UP"]
+# E501 = line too long (many existing long lines, not worth breaking)
+# UP007 = use X | Y instead of Optional[X] (fine but noisy)
+ignore = ["E501", "UP007"]

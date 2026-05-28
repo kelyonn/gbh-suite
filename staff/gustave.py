@@ -3,7 +3,6 @@ Gustave v2 — Morning Briefing
 System vitals, git status, Docker, ports, weather, top processes.
 """
 
-import os
 import shutil
 import socket
 import subprocess
@@ -48,9 +47,12 @@ def c(text: str, *codes: str) -> str:
 def _bar(pct: float, width: int = 18) -> str:
     filled = round(width * min(pct, 100) / 100)
     empty  = width - filled
-    if pct > 85:   colour = C.ERR
-    elif pct > 65: colour = C.WARN
-    else:          colour = C.OK
+    if pct > 85:
+        colour = C.ERR
+    elif pct > 65:
+        colour = C.WARN
+    else:
+        colour = C.OK
     return colour + "█" * filled + C.FAINT + "░" * empty + C.RESET
 
 
@@ -303,7 +305,6 @@ class Gustave:
                         )
                         if res.stdout.strip():
                             dirty_count += 1
-            status = "Healthy" if mem < 85 and free_gb > 15 else "Check System"
             body = f"RAM {mem:.0f}% · Disk {free_gb}GB free"
             if dirty_count:
                 body += f" · {dirty_count} dirty repo(s)"

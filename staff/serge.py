@@ -11,8 +11,8 @@ import time
 from datetime import datetime
 from pathlib import Path
 
-from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler
+from watchdog.observers import Observer
 
 # Allow running standalone
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -86,7 +86,7 @@ def undo_last_moves(n: int = 1) -> list[str]:
             results.append(f"❌ Error undoing move: {e}")
 
     # Remove undone entries from log
-    remaining = [l for i, l in enumerate(lines) if i not in undone_indices]
+    remaining = [line for i, line in enumerate(lines) if i not in undone_indices]
     MOVE_LOG.write_text("\n".join(remaining) + ("\n" if remaining else ""))
 
     return results
@@ -205,7 +205,6 @@ def _sort_existing(watch_dir: str):
 
 
 def start_watch():
-    from watchdog.observers import Observer
 
     GBH_DATA.mkdir(exist_ok=True)
     os.makedirs(config.PROJECTS_DIR, exist_ok=True)
