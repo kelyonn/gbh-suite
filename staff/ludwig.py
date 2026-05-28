@@ -49,18 +49,27 @@ def run():
             findings.append(f"Downloads folder: {dl_mb/1024:.1f}GB")
         print(f"   📥 Downloads: {dl_mb:.0f}MB", flush=True)
 
-    # ── Large files scan (home, skip Library) ─────────────────────
+    # ── Large files scan (only common user dirs — full $HOME walk takes too long) ─
     large = []
-    skip = {"Library", ".Trash", "venv", "node_modules", ".git"}
-    for root, dirs, files in os.walk(Path.home()):
-        dirs[:] = [d for d in dirs if d not in skip]
-        for fn in files:
-            try:
-                p = Path(root) / fn
-                if p.stat().st_size > 2 * 1024**3:  # >2GB
-                    large.append(p.name)
-            except OSError:
-                pass
+    skip = {"Library", ".Trash", "venv", ".venv", "node_modules", ".git", "__pycache__"}
+    scan_roots = [
+        Path.home() / "Documents",
+        Path.home() / "Downloads",
+        Path.home() / "Desktop",
+        Path.home() / "Movies",
+    ]
+    for root_dir in scan_roots:
+        if not root_dir.exists():
+            continue
+        for root, dirs, files in os.walk(root_dir):
+            dirs[:] = [d for d in dirs if d not in skip]
+            for fn in files:
+                try:
+                    p = Path(root) / fn
+                    if p.stat().st_size > 2 * 1024**3:  # >2GB
+                        large.append(p.name)
+                except OSError:
+                    pass
     if large:
         findings.append(f"{len(large)} file(s) over 2GB")
 
