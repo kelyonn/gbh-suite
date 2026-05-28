@@ -89,9 +89,7 @@ gbh focus pomodoro [n]     # Run N Pomodoro cycles (25m focus / 5m break)
 Sites blocked during focus are defined in `config.py` under `FOCUS_BLOCKLIST`.
 Pause/Resume is also available in the dashboard at `http://127.0.0.1:2525`.
 
-> Ivan uses a scoped passwordless sudo rule for `/etc/hosts`. Run `bash installer.sh`
-> and accept the prompt to install it once. Revoke at any time:
-> `sudo rm /etc/sudoers.d/gbh-ivan`
+> Ivan blocks sites using a PAC proxy file via `networksetup` — no `sudo` required.
 
 ### Agatha — Archiver
 ```bash
