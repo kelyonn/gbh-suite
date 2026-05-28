@@ -21,6 +21,7 @@ import psutil
 
 GBH_DATA         = Path.home() / ".gbh"
 FOCUS_STATE_FILE = GBH_DATA / "focus_state.json"
+FOCUS_HISTORY    = GBH_DATA / "focus_history.jsonl"
 PAC_FILE         = GBH_DATA / "ivan_block.pac"
 BLOCK_PORT       = 2526   # local proxy port — must not conflict with 2525 (dashboard)
 
@@ -28,7 +29,7 @@ LOOP_TICK_SEC = 5
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from staff.notify import notify as _send_notify  # noqa: E402
-from staff.state import delete_json, read_json, write_json  # noqa: E402
+from staff.state import append_jsonl, delete_json, read_json, write_json  # noqa: E402
 
 # ── Block-page content ────────────────────────────────────────────
 
@@ -292,6 +293,64 @@ def _resume_apps(pid_map: dict[str, int]) -> None:
             pass  # already gone — that's fine
 
 
+# ── History ───────────────────────────────────────────────────────
+
+def _record_session(state: dict) -> None:
+    """Append a completed/stopped focus session to focus_history.jsonl."""
+    try:
+        started_at = datetime.fromisoformat(state["started_at"])
+        ended_at   = datetime.now()
+        # Actual focused time = elapsed minus any time spent paused.
+        # We don't track cumulative pause time precisely, so we use
+        # min(elapsed, duration_min * 60) as a conservative estimate.
+        elapsed    = int((ended_at - started_at).total_seconds())
+        target     = int(state.get("duration_min", 0)) * 60
+        focused    = min(elapsed, target) if target > 0 else elapsed
+        completed  = focused >= target * 0.9 if target > 0 else False
+        append_jsonl(FOCUS_HISTORY, {
+            "date":        ended_at.date().isoformat(),
+            "started_at":  state["started_at"],
+            "ended_at":    ended_at.isoformat(),
+            "duration_min": state.get("duration_min", 0),
+            "focused_sec": focused,
+            "completed":   completed,
+        })
+    except Exception:
+        pass  # history is nice-to-have, never break core flow
+
+
+def get_history(days: int = 7) -> list[dict]:
+    """Return per-day focus totals for the last *days* days.
+
+    Each entry: {"date": "YYYY-MM-DD", "total_sec": int, "sessions": int}
+    """
+    from datetime import date
+    from datetime import timedelta as td
+    if not FOCUS_HISTORY.exists():
+        return []
+
+    # Build a date → totals map
+    today = date.today()
+    buckets: dict[str, dict] = {
+        (today - td(days=i)).isoformat(): {"date": (today - td(days=i)).isoformat(),
+                                           "total_sec": 0, "sessions": 0}
+        for i in range(days - 1, -1, -1)
+    }
+
+    import json as _json
+    for line in FOCUS_HISTORY.read_text().splitlines():
+        try:
+            rec = _json.loads(line)
+            d = rec.get("date", "")
+            if d in buckets:
+                buckets[d]["total_sec"] += int(rec.get("focused_sec", 0))
+                buckets[d]["sessions"]  += 1
+        except Exception:
+            pass
+
+    return list(buckets.values())
+
+
 # ── Ivan class ────────────────────────────────────────────────────
 
 class Ivan:
@@ -430,6 +489,7 @@ class Ivan:
             _unblock_sites()
         # Always resume apps on stop (even if paused, pids may still be set)
         _resume_apps(state.get("suspended_app_pids") or {})
+        _record_session(state)
         _clear_state()
 
         if send_notify:

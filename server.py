@@ -317,6 +317,12 @@ def api_focus():
     return IvanClass().status()
 
 
+@app.get("/api/focus/history")
+def api_focus_history(days: int = 7):
+    from staff.ivan import get_history
+    return {"history": get_history(days)}
+
+
 @app.post("/api/focus/start")
 async def api_focus_start(request: Request):
     body = await request.json()
