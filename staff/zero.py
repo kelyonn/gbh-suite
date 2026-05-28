@@ -90,7 +90,7 @@ class Zero:
         total = sum(f.stat().st_size for f in TRASH_DIR.rglob("*") if f.is_file())
         gb = round(total / (1024 ** 3), 2)
         if gb > config.TRASH_WARN_GB:
-            notify("Zero", "Your Trash has {gb:.1f} GB. Consider emptying it.")
+            notify("Zero", f"Your Trash has {gb:.1f} GB. Consider emptying it.")
         return {"size_gb": gb, "warn": gb > config.TRASH_WARN_GB}
 
     def _hash_file(self, path: str) -> str | None:

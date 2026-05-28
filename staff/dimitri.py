@@ -29,7 +29,7 @@ class Dimitri:
         while True:
             try:
                 with socket.create_connection(("127.0.0.1", port), timeout=1):
-                    notify("Dimitri", "Port {port} is now active.")
+                    notify("Dimitri", f"Port {port} is now active.")
                     return
             except OSError:
                 time.sleep(2)
@@ -46,9 +46,9 @@ class Dimitri:
                 ok = False
 
             if not ok and last_ok:
-                notify("Dimitri", "Health check failed: {url}")
+                notify("Dimitri", f"Health check failed: {url}")
             elif ok and not last_ok:
-                notify("Dimitri", "Back online: {url}")
+                notify("Dimitri", f"Back online: {url}")
             last_ok = ok
             time.sleep(15)
 
@@ -94,11 +94,11 @@ class Dimitri:
                 if not isinstance(p.info.get("cmdline"), type(None))
             )
             if was_running and not running:
-                notify("Dimitri", "{name} has stopped.")
+                notify("Dimitri", f"{name} has stopped.")
                 if restart_cmd:
                     try:
                         subprocess.Popen(restart_cmd, start_new_session=True)
-                        notify("Dimitri", "Relaunched: {name}")
+                        notify("Dimitri", f"Relaunched: {name}")
                     except Exception as e:
                         notify("Dimitri", str(e))
             was_running = running
