@@ -81,6 +81,16 @@ FOCUS_BLOCKLIST = [
 FOCUS_DEFAULT_MINUTES  = 25
 FOCUS_BREAK_MINUTES    = 5
 
+# macOS app process names to SUSPEND (SIGSTOP) during focus.
+# Suspended apps cannot send notifications or steal focus.
+# Use exact process names — check Activity Monitor's "Process Name" column.
+# Empty by default; add whichever apps distract you most.
+FOCUS_BLOCKED_APPS: list[str] = [
+    "Slack",
+    "Discord",
+    "Messages",
+]
+
 # ─── SERVER ──────────────────────────────────────────────
 SERVER_HOST = "127.0.0.1"
 SERVER_PORT = 2525

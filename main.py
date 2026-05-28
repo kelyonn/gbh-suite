@@ -118,7 +118,7 @@ def main():
             iv.pomodoro(config.FOCUS_BLOCKLIST, cycles)
         else:
             minutes = int(sys.argv[2]) if len(sys.argv) > 2 and sys.argv[2].isdigit() else config.FOCUS_DEFAULT_MINUTES
-            iv.start(minutes, config.FOCUS_BLOCKLIST)
+            iv.start(minutes, config.FOCUS_BLOCKLIST, config.FOCUS_BLOCKED_APPS)
 
     # ── Agatha ────────────────────────────────────────────────────
     elif command == "pack":
