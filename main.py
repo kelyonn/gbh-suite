@@ -89,12 +89,17 @@ def main():
         iv = ivan.Ivan()
         if len(sys.argv) > 2 and sys.argv[2] == "stop":
             iv.stop()
+        elif len(sys.argv) > 2 and sys.argv[2] == "pause":
+            iv.pause()
+        elif len(sys.argv) > 2 and sys.argv[2] == "resume":
+            iv.resume()
         elif len(sys.argv) > 2 and sys.argv[2] == "status":
             status = iv.status()
             if status["active"]:
                 mins = status["remaining_sec"] // 60
                 secs = status["remaining_sec"] % 60
-                print(f"🔕 Focus active — {mins}m {secs}s remaining")
+                label = "paused" if status.get("paused") else "active"
+                print(f"🔕 Focus {label} — {mins}m {secs}s remaining")
             else:
                 print("✅ No active focus session.")
         elif len(sys.argv) > 2 and sys.argv[2] == "pomodoro":
@@ -152,8 +157,10 @@ def main():
 
     elif command == "stop":
         print("🔫 Stopping all GBH background tasks...")
-        os.system("pkill -f 'gbh sort'")
-        os.system("pkill -f 'gbh patrol'")
+        # Match the actual cmdline: python3.11 .../main.py <subcommand>
+        for sub in ("sort", "patrol", "jopling", "henckels"):
+            os.system(f"pkill -f 'main.py {sub}'")
+        os.system("pkill -f 'uvicorn server:app'")
         print("   Done.")
 
     else:
@@ -171,7 +178,10 @@ def main():
   gbh wait <port>          Notify when port opens
   gbh watch <file>         Watch log file for errors
   gbh focus [minutes]      Start focus mode (Ivan)
+  gbh focus pause          Pause — unblock sites, freeze timer
+  gbh focus resume         Resume the paused session
   gbh focus stop           End focus session
+  gbh focus status         Show remaining time
   gbh focus pomodoro [n]   Pomodoro cycles
   gbh pack [path]          Archive project (Agatha)
   gbh backup               Backup dotfiles
