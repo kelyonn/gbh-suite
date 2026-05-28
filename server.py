@@ -317,30 +317,33 @@ def api_focus():
 async def api_focus_start(request: Request):
     body = await request.json()
     minutes = int(body.get("minutes", config.FOCUS_DEFAULT_MINUTES))
-    # Run in background thread so API returns immediately
+    # Run in a background thread — Ivan.start() blocks for the whole session.
+    # State is written before the slow networksetup calls, so we just need a
+    # short yield to let the thread get scheduled before we read it back.
     import threading
     iv = IvanClass()
     t = threading.Thread(target=iv.start, args=(minutes, config.FOCUS_BLOCKLIST), daemon=True)
     t.start()
-    return {"status": "started", "minutes": minutes}
+    await asyncio.sleep(0.2)   # let thread write state file
+    return IvanClass().status()
 
 
 @app.post("/api/focus/stop")
 async def api_focus_stop():
     IvanClass().stop()
-    return {"status": "stopped"}
+    return IvanClass().status()
 
 
 @app.post("/api/focus/pause")
 async def api_focus_pause():
     IvanClass().pause()
-    return {"status": "paused"}
+    return IvanClass().status()
 
 
 @app.post("/api/focus/resume")
 async def api_focus_resume():
     IvanClass().resume()
-    return {"status": "resumed"}
+    return IvanClass().status()
 
 
 @app.get("/api/large")
