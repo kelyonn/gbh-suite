@@ -16,6 +16,7 @@
     <key>WorkingDirectory</key><string>/Users/kalyan/Documents/projects/gbh</string>
     <key>RunAtLoad</key><true/>
     <key>KeepAlive</key><true/>
+    <key>ThrottleInterval</key><integer>30</integer>
     <key>StandardOutPath</key><string>/tmp/gbh_server.out</string>
     <key>StandardErrorPath</key><string>/tmp/gbh_server.err</string>
 </dict></plist>

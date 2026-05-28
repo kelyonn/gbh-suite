@@ -27,16 +27,18 @@ echo ""
 echo "🔧 Installing LaunchAgents..."
 for plist in "$GBH_DIR/launchagents/"*.plist; do
     name=$(basename "$plist")
+    label="${name%.plist}"
     dest="$LAUNCH_AGENTS/$name"
 
-    # Unload if already loaded
-    launchctl unload "$dest" 2>/dev/null || true
+    # Bootout if already loaded (safe to ignore if not loaded)
+    launchctl bootout "gui/$UID/$label" 2>/dev/null || true
 
     # Symlink into LaunchAgents
     ln -sf "$plist" "$dest"
 
-    # Load
-    launchctl load "$dest"
+    # Bootstrap into the gui domain — persists across reboots
+    launchctl bootstrap "gui/$UID" "$dest"
+    launchctl enable "gui/$UID/$label" 2>/dev/null || true
     echo "   ✅ $name"
 done
 
@@ -48,6 +50,14 @@ if ! grep -q "alias gbh=" "$HOME/.zshrc" 2>/dev/null; then
     echo "   ✅ Added 'gbh' alias to ~/.zshrc"
 else
     echo "   ℹ️  gbh alias already in ~/.zshrc"
+fi
+
+
+# 5. Opt-in: passwordless sudo for Ivan focus mode
+echo ""
+read -r -p "🔐 Install passwordless sudo for Ivan focus mode? [y/N] " ans
+if [[ "$ans" =~ ^[Yy]$ ]]; then
+    bash "$GBH_DIR/scripts/install_ivan_sudoers.sh"
 fi
 
 echo ""
