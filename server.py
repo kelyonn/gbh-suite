@@ -38,12 +38,15 @@ ZERO_LOG = BASE_DIR / "zero_last_run.txt"
 class StaffStatus:
     serge: bool = False
     dimitri: bool = False
+    jopling: bool = False
+    henckels: bool = False
     server: bool = True
 
 
 @dataclass
 class FocusStatus:
     active: bool = False
+    paused: bool = False
     remaining_sec: int = 0
     duration_min: int = 0
     ends_at: str | None = None
@@ -80,16 +83,18 @@ class Vitals:
 # ── Helpers ──────────────────────────────────────────────────────
 
 def _get_staff() -> StaffStatus:
-    serge = dimitri = False
+    serge = dimitri = jopling = henckels = False
     for proc in psutil.process_iter(["cmdline"]):
         try:
             cmd = " ".join(proc.info.get("cmdline") or [])
             if "main.py" in cmd:
-                if "sort" in cmd:   serge = True
-                if "patrol" in cmd: dimitri = True
+                if "sort" in cmd:     serge = True
+                if "patrol" in cmd:   dimitri = True
+                if "jopling" in cmd:  jopling = True
+                if "henckels" in cmd: henckels = True
         except (psutil.NoSuchProcess, psutil.AccessDenied):
             pass
-    return StaffStatus(serge=serge, dimitri=dimitri, server=True)
+    return StaffStatus(serge=serge, dimitri=dimitri, jopling=jopling, henckels=henckels, server=True)
 
 
 def _zero_last_run() -> str:
@@ -208,7 +213,6 @@ async def broadcast_loop():
         zero_tick += BROADCAST_INTERVAL
         if zero_tick >= ZERO_CHECK_INTERVAL:
             zero_tick = 0
-            today = datetime.now().date()
             if _zero_last_run() not in ("today",):
                 try:
                     z = zero_mod.Zero()
@@ -325,6 +329,18 @@ async def api_focus_start(request: Request):
 async def api_focus_stop():
     IvanClass().stop()
     return {"status": "stopped"}
+
+
+@app.post("/api/focus/pause")
+async def api_focus_pause():
+    IvanClass().pause()
+    return {"status": "paused"}
+
+
+@app.post("/api/focus/resume")
+async def api_focus_resume():
+    IvanClass().resume()
+    return {"status": "resumed"}
 
 
 @app.get("/api/large")
