@@ -1,12 +1,18 @@
 """
 Ivan — Focus Mode Manager
-Blocks distracting sites via a PAC (Proxy Auto-Config) file + networksetup.
-No sudo required. Works from CLI, dashboard, and background threads.
+Blocks distracting sites by running a local block-proxy server and routing
+all blocked domains to it via a PAC file + networksetup.
+
+No sudo required. When a blocked site is requested the browser hits the
+local proxy, which returns an HTTP 403 block page (or refuses the CONNECT
+tunnel for HTTPS). Because the proxy IS listening there is no DIRECT fallback.
 """
 
 import json
+import socket
 import subprocess
 import sys
+import threading
 import time
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -14,56 +20,145 @@ from pathlib import Path
 GBH_DATA         = Path.home() / ".gbh"
 FOCUS_STATE_FILE = GBH_DATA / "focus_state.json"
 PAC_FILE         = GBH_DATA / "ivan_block.pac"
+BLOCK_PORT       = 2526   # local proxy port — must not conflict with 2525 (dashboard)
 
-LOOP_TICK_SEC = 5  # how often start() re-reads state to detect pause/resume/stop
+LOOP_TICK_SEC = 5
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from staff.notify import notify as _send_notify
 
+# ── Block-page content ────────────────────────────────────────────
 
-# ── State helpers ─────────────────────────────────────────────────
+_BLOCK_HTML = b"""\
+<!DOCTYPE html><html lang="en"><head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Focus Mode</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#0a0a0a;color:#e2e2e2;font-family:-apple-system,sans-serif;
+     display:flex;align-items:center;justify-content:center;min-height:100vh}
+.card{text-align:center;padding:3rem 2rem;max-width:420px}
+h1{color:#c9a84c;font-size:2rem;margin-bottom:.5rem;letter-spacing:.04em}
+p{color:#888;font-size:.95rem;line-height:1.6;margin-top:.75rem}
+code{background:#1c1c1c;color:#c9a84c;padding:.15em .4em;border-radius:4px;font-size:.9em}
+</style></head>
+<body><div class="card">
+  <h1>&#x1F515; Focus Mode</h1>
+  <p>Ivan has blocked this site.</p>
+  <p>Run <code>gbh focus pause</code> if you need a break,<br>
+     or <code>gbh focus stop</code> to end the session.</p>
+</div></body></html>
+"""
 
-def _read_state() -> dict | None:
-    if not FOCUS_STATE_FILE.exists():
-        return None
+_HTTP_RESPONSE = (
+    b"HTTP/1.1 403 Forbidden\r\n"
+    b"Content-Type: text/html; charset=utf-8\r\n"
+    b"Content-Length: " + str(len(_BLOCK_HTML)).encode() + b"\r\n"
+    b"Connection: close\r\n"
+    b"\r\n"
+) + _BLOCK_HTML
+
+# For HTTPS CONNECT tunnels — browser shows a connection-refused style error.
+_CONNECT_DENY = b"HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\nConnection: close\r\n\r\n"
+
+
+# ── Block-proxy server ────────────────────────────────────────────
+
+_stop_event: threading.Event | None = None
+
+
+def _handle_conn(conn: socket.socket) -> None:
     try:
-        return json.loads(FOCUS_STATE_FILE.read_text())
+        conn.settimeout(5)
+        data = b""
+        while b"\r\n" not in data and len(data) < 2048:
+            chunk = conn.recv(512)
+            if not chunk:
+                break
+            data += chunk
+        if data.upper().startswith(b"CONNECT"):
+            conn.sendall(_CONNECT_DENY)
+        elif data:
+            conn.sendall(_HTTP_RESPONSE)
     except Exception:
-        return None
+        pass
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
 
 
-def _write_state(state: dict):
-    GBH_DATA.mkdir(exist_ok=True)
-    FOCUS_STATE_FILE.write_text(json.dumps(state))
+def _run_server(stop: threading.Event) -> None:
+    srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+    try:
+        srv.bind(("127.0.0.1", BLOCK_PORT))
+    except OSError:
+        return   # another process already has it — that's fine
+    srv.listen(32)
+    srv.settimeout(1.0)
+    while not stop.is_set():
+        try:
+            conn, _ = srv.accept()
+            threading.Thread(target=_handle_conn, args=(conn,), daemon=True).start()
+        except socket.timeout:
+            continue
+        except Exception:
+            break
+    try:
+        srv.close()
+    except Exception:
+        pass
 
 
-def _clear_state():
-    if FOCUS_STATE_FILE.exists():
-        FOCUS_STATE_FILE.unlink()
+def _server_is_running() -> bool:
+    """Return True if a block-proxy is already listening on BLOCK_PORT."""
+    try:
+        s = socket.create_connection(("127.0.0.1", BLOCK_PORT), timeout=0.3)
+        s.close()
+        return True
+    except OSError:
+        return False
+
+
+def _start_block_server() -> threading.Event | None:
+    """Start the local block proxy if not already running. Returns the stop event."""
+    global _stop_event
+    if _server_is_running():
+        return None   # already up (another process)
+    _stop_event = threading.Event()
+    t = threading.Thread(target=_run_server, args=(_stop_event,), daemon=True)
+    t.start()
+    time.sleep(0.15)   # give it time to bind
+    return _stop_event
+
+
+def _stop_block_server() -> None:
+    global _stop_event
+    if _stop_event:
+        _stop_event.set()
+        _stop_event = None
 
 
 # ── Network helpers ───────────────────────────────────────────────
 
 def _network_services() -> list[str]:
-    """Return all enabled network service names."""
     try:
         r = subprocess.run(
             ["networksetup", "-listallnetworkservices"],
             capture_output=True, text=True, timeout=5,
         )
-        services = []
-        for line in r.stdout.splitlines():
-            line = line.strip()
-            if not line or line.startswith("An asterisk") or line.startswith("*"):
-                continue
-            services.append(line)
-        return services or ["Wi-Fi"]
+        return [
+            line.strip() for line in r.stdout.splitlines()
+            if line.strip() and not line.startswith("An asterisk") and not line.startswith("*")
+        ] or ["Wi-Fi"]
     except Exception:
         return ["Wi-Fi"]
 
 
 def _write_pac(blocklist: list[str]) -> str:
-    """Write a PAC file that sends blocked domains to a dead local proxy."""
     domains: set[str] = set()
     for d in blocklist:
         d = d.lower()
@@ -71,11 +166,9 @@ def _write_pac(blocklist: list[str]) -> str:
         if not d.startswith("www."):
             domains.add("www." + d)
 
-    # Build JS array literal
     entries = ",\n    ".join(f'"{d}"' for d in sorted(domains))
     pac = f"""\
-// GBH Ivan — focus mode block list
-// Generated automatically. Do not edit while focus is active.
+// GBH Ivan — focus mode block list (auto-generated)
 function FindProxyForURL(url, host) {{
     var blocked = [
     {entries}
@@ -83,8 +176,7 @@ function FindProxyForURL(url, host) {{
     var h = host.toLowerCase();
     for (var i = 0; i < blocked.length; i++) {{
         if (h === blocked[i] || h.endsWith("." + blocked[i])) {{
-            // Route to a local port that isn't listening — connection refused.
-            return "PROXY 127.0.0.1:9";
+            return "PROXY 127.0.0.1:{BLOCK_PORT}";
         }}
     }}
     return "DIRECT";
@@ -96,9 +188,14 @@ function FindProxyForURL(url, host) {{
 
 
 def _block_sites(blocklist: list[str]) -> bool:
-    """Enable PAC proxy on all network services. Returns True if at least one succeeded."""
-    pac_path = _write_pac(blocklist)
-    pac_url  = f"file://{pac_path}"
+    """Start block server + enable PAC proxy on every network service."""
+    _start_block_server()
+
+    if not _server_is_running():
+        print(f"❌ Could not start block server on port {BLOCK_PORT}.")
+        return False
+
+    pac_url = f"file://{_write_pac(blocklist)}"
     ok = False
     for svc in _network_services():
         try:
@@ -117,8 +214,8 @@ def _block_sites(blocklist: list[str]) -> bool:
     return ok
 
 
-def _unblock_sites():
-    """Disable PAC proxy on all network services and remove the PAC file."""
+def _unblock_sites() -> None:
+    """Disable PAC proxy, stop block server, delete PAC file."""
     for svc in _network_services():
         try:
             subprocess.run(
@@ -127,29 +224,49 @@ def _unblock_sites():
             )
         except Exception:
             pass
+    _stop_block_server()
     if PAC_FILE.exists():
         PAC_FILE.unlink(missing_ok=True)
+
+
+# ── State helpers ─────────────────────────────────────────────────
+
+def _read_state() -> dict | None:
+    if not FOCUS_STATE_FILE.exists():
+        return None
+    try:
+        return json.loads(FOCUS_STATE_FILE.read_text())
+    except Exception:
+        return None
+
+
+def _write_state(state: dict) -> None:
+    GBH_DATA.mkdir(exist_ok=True)
+    FOCUS_STATE_FILE.write_text(json.dumps(state))
+
+
+def _clear_state() -> None:
+    if FOCUS_STATE_FILE.exists():
+        FOCUS_STATE_FILE.unlink()
 
 
 # ── Ivan class ────────────────────────────────────────────────────
 
 class Ivan:
 
-    def start(self, minutes: int, blocklist: list[str]):
-        """Start a focus session. Blocks the calling process until the session ends."""
+    def start(self, minutes: int, blocklist: list[str]) -> None:
         state = _read_state()
         if state and state.get("active"):
             if state.get("paused"):
-                print("⚠️  A paused focus session exists. Use `gbh focus resume` or `gbh focus stop`.")
+                print("⚠️  A paused session exists. Use `gbh focus resume` or `gbh focus stop`.")
             else:
                 ends_at   = datetime.fromisoformat(state["ends_at"])
                 remaining = max(0, int((ends_at - datetime.now()).total_seconds() // 60))
-                print(f"⚠️  Focus already active. {remaining}m remaining.")
+                print(f"⚠️  Focus already active — {remaining}m remaining.")
             return
 
-        print(f"🔕 Ivan: Starting {minutes}-minute focus session...")
+        print(f"🔕 Ivan: Starting {minutes}-minute focus session…")
         if not _block_sites(blocklist):
-            print("❌ Could not set proxy. Check networksetup permissions.")
             return
 
         ends_at = datetime.now() + timedelta(minutes=minutes)
@@ -167,18 +284,15 @@ class Ivan:
         _send_notify("Ivan", f"Blocking distractions for {minutes} minutes.")
         print(f"✅ Focus active until {ends_at.strftime('%I:%M %p')}. Sites blocked.")
 
-        # State-driven loop: re-reads state each tick so pause/resume/stop
-        # from a separate shell is picked up within LOOP_TICK_SEC seconds.
         try:
             while True:
                 s = _read_state()
                 if not s or not s.get("active"):
-                    return          # stop() was called externally
+                    return                   # stop() was called externally
                 if s.get("paused"):
                     time.sleep(LOOP_TICK_SEC)
                     continue
-                ends_at = datetime.fromisoformat(s["ends_at"])
-                if datetime.now() >= ends_at:
+                if datetime.now() >= datetime.fromisoformat(s["ends_at"]):
                     break
                 time.sleep(LOOP_TICK_SEC)
         except KeyboardInterrupt:
@@ -186,14 +300,13 @@ class Ivan:
 
         self.stop(send_notify=True)
 
-    def pause(self):
-        """Pause the active session: disable proxy, freeze the timer."""
+    def pause(self) -> None:
         state = _read_state()
         if not state or not state.get("active"):
             print("ℹ️  No active focus session.")
             return
         if state.get("paused"):
-            print("ℹ️  Focus is already paused.")
+            print("ℹ️  Already paused.")
             return
 
         ends_at   = datetime.fromisoformat(state["ends_at"])
@@ -208,27 +321,25 @@ class Ivan:
         _write_state(state)
 
         mins, secs = divmod(remaining, 60)
-        _send_notify("Ivan", f"Paused. {mins}m {secs}s left.")
-        print(f"⏸️  Focus paused — {mins}m {secs}s left. Sites unblocked.")
+        _send_notify("Ivan", f"Paused — {mins}m {secs}s left.")
+        print(f"⏸️  Paused — {mins}m {secs}s left. Sites unblocked.")
 
-    def resume(self):
-        """Resume a paused session: re-enable proxy, continue with remaining time."""
+    def resume(self) -> None:
         state = _read_state()
         if not state or not state.get("active"):
-            print("ℹ️  No focus session to resume.")
+            print("ℹ️  No session to resume.")
             return
         if not state.get("paused"):
-            print("ℹ️  Focus is already running.")
+            print("ℹ️  Not paused.")
             return
 
         remaining = int(state.get("remaining_at_pause_sec") or 0)
         if remaining <= 0:
-            print("ℹ️  No time left on this session. Ending it.")
+            print("ℹ️  No time left — ending session.")
             _clear_state()
             return
 
         if not _block_sites(state.get("blocklist", [])):
-            print("❌ Could not re-enable proxy.")
             return
 
         new_ends_at = datetime.now() + timedelta(seconds=remaining)
@@ -241,27 +352,24 @@ class Ivan:
         _write_state(state)
 
         mins, secs = divmod(remaining, 60)
-        _send_notify("Ivan", f"Resumed. {mins}m {secs}s to go.")
-        print(f"▶️  Focus resumed until {new_ends_at.strftime('%I:%M %p')}.")
+        _send_notify("Ivan", f"Resumed — {mins}m {secs}s to go.")
+        print(f"▶️  Resumed until {new_ends_at.strftime('%I:%M %p')}.")
 
-    def stop(self, send_notify: bool = False):
-        """End the focus session and disable the proxy."""
+    def stop(self, send_notify: bool = False) -> None:
         state = _read_state()
         if not state or not state.get("active"):
-            print("ℹ️  No active focus session.")
+            print("ℹ️  No active session.")
             return
 
-        # Only unblock if sites are currently blocked (not if already paused/unblocked).
         if not state.get("paused"):
             _unblock_sites()
         _clear_state()
 
         if send_notify:
             _send_notify("Ivan", "Great work. Sites unblocked.")
-        print("✅ Focus session ended. Sites unblocked.")
+        print("✅ Session ended. Sites unblocked.")
 
     def status(self) -> dict:
-        """Return focus status dict. Safe to call from any context."""
         state = _read_state()
         if not state or not state.get("active"):
             return {"active": False, "paused": False, "remaining_sec": 0,
@@ -269,8 +377,7 @@ class Ivan:
 
         if state.get("paused"):
             return {
-                "active": True,
-                "paused": True,
+                "active": True, "paused": True,
                 "remaining_sec": int(state.get("remaining_at_pause_sec") or 0),
                 "duration_min": state.get("duration_min", 25),
                 "ends_at": state.get("ends_at"),
@@ -280,30 +387,27 @@ class Ivan:
         remaining = max(0, int((ends_at - datetime.now()).total_seconds()))
 
         if remaining == 0:
-            # Session expired (e.g. Mac restarted mid-session). Clean up safely —
-            # no sudo needed since we're just toggling networksetup.
+            # Expired (e.g. Mac restarted mid-session) — clean up safely.
             _unblock_sites()
             _clear_state()
             return {"active": False, "paused": False, "remaining_sec": 0,
                     "duration_min": 0, "ends_at": None}
 
         return {
-            "active": True,
-            "paused": False,
+            "active": True, "paused": False,
             "remaining_sec": remaining,
             "duration_min": state.get("duration_min", 25),
             "ends_at": state.get("ends_at"),
         }
 
-    def pomodoro(self, blocklist: list[str], cycles: int = 4):
-        """Run N Pomodoro cycles: focus → short break, repeat."""
+    def pomodoro(self, blocklist: list[str], cycles: int = 4) -> None:
         from config import FOCUS_DEFAULT_MINUTES, FOCUS_BREAK_MINUTES
-        print(f"🍅 Ivan: Starting Pomodoro — {cycles} × {FOCUS_DEFAULT_MINUTES}m focus / {FOCUS_BREAK_MINUTES}m break")
+        print(f"🍅 Pomodoro: {cycles} × {FOCUS_DEFAULT_MINUTES}m focus / {FOCUS_BREAK_MINUTES}m break")
         for i in range(cycles):
-            print(f"\n── Cycle {i + 1}/{cycles}: Focus ──")
+            print(f"\n── Cycle {i + 1}/{cycles} ──")
             self.start(FOCUS_DEFAULT_MINUTES, blocklist)
             if i < cycles - 1:
-                _send_notify("Ivan", f"Take {FOCUS_BREAK_MINUTES} minutes. Back soon.")
+                _send_notify("Ivan", f"Break — {FOCUS_BREAK_MINUTES} minutes.")
                 print(f"☕ Break for {FOCUS_BREAK_MINUTES} minutes…")
                 time.sleep(FOCUS_BREAK_MINUTES * 60)
         _send_notify("Ivan", f"All {cycles} cycles done. Excellent focus!")
