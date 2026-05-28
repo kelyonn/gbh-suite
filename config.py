@@ -64,14 +64,18 @@ LARGE_FILE_THRESHOLD_MB = 500    # Files larger than this flagged by Zero
 TRASH_WARN_GB = 5                # Warn when Trash exceeds this
 
 # ─── IVAN — Focus Mode ───────────────────────────────────
+# Ivan auto-prefixes www. — list each domain once.
 FOCUS_BLOCKLIST = [
-    "reddit.com", "www.reddit.com",
-    "twitter.com", "www.twitter.com", "x.com",
-    "instagram.com", "www.instagram.com",
-    "youtube.com", "www.youtube.com",
-    "news.ycombinator.com",
-    "facebook.com", "www.facebook.com",
-    "tiktok.com", "www.tiktok.com",
+    # Social
+    "reddit.com", "twitter.com", "x.com", "instagram.com",
+    "facebook.com", "tiktok.com", "linkedin.com", "threads.net",
+    "pinterest.com", "snapchat.com", "tumblr.com", "bsky.app",
+    # Video / entertainment
+    "youtube.com", "netflix.com", "twitch.tv",
+    "hulu.com", "primevideo.com", "disneyplus.com",
+    # Time-sinks
+    "news.ycombinator.com", "buzzfeed.com", "9gag.com",
+    "imgur.com", "quora.com", "medium.com",
 ]
 
 FOCUS_DEFAULT_MINUTES  = 25
