@@ -105,11 +105,12 @@ def check_daemons() -> list[str]:
 
 
 def check_dashboard() -> list[str]:
+    server_plist = LAUNCH_AGENTS_DIR / "com.kalyan.gbh.server.plist"
     if _port_open(2525):
         return [_ok("Dashboard responding on port 2525")]
     return [
         _err("Dashboard not responding on port 2525"),
-        _fix("launchctl bootstrap gui/$UID ~/Library/LaunchAgents/com.kalyan.gbh.server.plist"),
+        _fix(f"launchctl bootstrap gui/$UID {server_plist}"),
     ]
 
 

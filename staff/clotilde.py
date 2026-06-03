@@ -60,7 +60,7 @@ def run():
 
     pip_cache = Path.home() / "Library/Caches/pip"
     if (s := _dir_mb(pip_cache)) > THRESHOLDS["pip"]:
-        _run(["/opt/homebrew/bin/python3.11", "-m", "pip", "cache", "purge"])
+        _run([sys.executable, "-m", "pip", "cache", "purge"])
         freed = s - _dir_mb(pip_cache)
         freed_total += freed
         actions.append(f"pip {freed:.0f}MB")
