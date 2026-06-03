@@ -4,7 +4,18 @@
 
 set -e
 GBH_DIR="$(cd "$(dirname "$0")" && pwd)"
-PYTHON="/opt/homebrew/bin/python3.11"
+
+# Detect Python interpreter (prefer project venv if it exists)
+if [ -f "$GBH_DIR/venv/bin/python3" ]; then
+    PYTHON="$GBH_DIR/venv/bin/python3"
+elif [ -f "$GBH_DIR/venv/bin/python" ]; then
+    PYTHON="$GBH_DIR/venv/bin/python"
+elif command -v python3 &>/dev/null; then
+    PYTHON="$(command -v python3)"
+else
+    PYTHON="/usr/bin/python3"
+fi
+
 LAUNCH_AGENTS="$HOME/Library/LaunchAgents"
 
 echo "🏨 Grand Budapest Hotel v2 — Installer"
@@ -12,9 +23,13 @@ echo "   Project: $GBH_DIR"
 echo "   Python:  $($PYTHON --version)"
 echo ""
 
-# 1. Install dependencies user-wide (no venv, no TCC issues)
+# 1. Install dependencies
 echo "📦 Installing dependencies..."
-$PYTHON -m pip install --user --quiet watchdog psutil fastapi uvicorn jinja2 httpx websockets
+if [[ "$PYTHON" == *"/venv/"* ]]; then
+    $PYTHON -m pip install --quiet watchdog psutil fastapi uvicorn jinja2 httpx websockets
+else
+    $PYTHON -m pip install --user --quiet watchdog psutil fastapi uvicorn jinja2 httpx websockets
+fi
 brew install terminal-notifier --quiet 2>/dev/null || true
 echo "   ✅ Dependencies installed"
 
@@ -33,11 +48,13 @@ for plist in "$GBH_DIR/launchagents/"*.plist; do
     # Bootout if already loaded (safe to ignore if not loaded)
     launchctl bootout "gui/$UID/$label" 2>/dev/null || true
 
-    # Symlink into LaunchAgents
-    ln -sf "$plist" "$dest"
+    # Copy plist file and substitute placeholders dynamically
+    sed -e "s|/Users/kalyan/Documents/projects/gbh|$GBH_DIR|g" \
+        -e "s|/opt/homebrew/bin/python3.11|$PYTHON|g" \
+        "$plist" > "$dest"
 
     # Bootstrap into the gui domain — persists across reboots
-    launchctl bootstrap "gui/$UID" "$dest"
+    launchctl bootstrap "gui/$UID" "$dest" 2>/dev/null || true
     launchctl enable "gui/$UID/$label" 2>/dev/null || true
     echo "   ✅ $name"
 done
