@@ -1,7 +1,6 @@
 """
 GBH Notify Utility
-Unified notification layer using terminal-notifier.
-Falls back to osascript if terminal-notifier is not available.
+Sends macOS notifications via osascript (primary) with terminal-notifier fallback.
 
 Usage:
     from staff.notify import notify
@@ -46,8 +45,6 @@ STAFF_SUBTITLES: dict[str, str] = {
     "Agatha":   "Archivist",
 }
 
-GBH_ICON = os.path.expanduser("~/.gbh/icon.png")
-
 
 def notify(
     staff: str,
@@ -66,29 +63,45 @@ def notify(
         sound:   Override sound name
         urgent:  If True, uses a more attention-grabbing sound
     """
-    full_title   = title or f"GBH  ·  {staff}"
-    subtitle     = STAFF_SUBTITLES.get(staff, "")
-    chosen_sound = sound or (STAFF_SOUNDS.get("Default") if urgent else STAFF_SOUNDS.get(staff, "default"))
+    full_title = title or f"GBH  ·  {staff}"
+    subtitle   = STAFF_SUBTITLES.get(staff, "")
 
-    if os.path.exists(NOTIFIER):
-        cmd = [
-            NOTIFIER,
-            "-title",    full_title,
-            "-message",  message,
-            "-group",    f"gbh-{staff.lower()}",
-            "-sound",    chosen_sound,
-        ]
-        if subtitle:
-            cmd += ["-subtitle", subtitle]
-        if os.path.exists(GBH_ICON):
-            cmd += ["-appIcon", GBH_ICON]
-        try:
-            subprocess.run(cmd, capture_output=True, timeout=5)
+    # Escape quotes for AppleScript strings
+    def _esc(s: str) -> str:
+        return s.replace("\\", "\\\\").replace('"', '\\"')
+
+    # Primary: osascript — reliable on all modern macOS, Terminal already has permission
+    script_parts = [
+        f'tell application "System Events"',
+        f'  display notification "{_esc(message)}" with title "{_esc(full_title)}"',
+    ]
+    if subtitle:
+        script_parts[1] = (
+            f'  display notification "{_esc(message)}" with title "{_esc(full_title)}"'
+            f' subtitle "{_esc(subtitle)}"'
+        )
+    script_parts.append("end tell")
+
+    try:
+        result = subprocess.run(
+            ["osascript", "-e", "\n".join(script_parts)],
+            capture_output=True, timeout=5,
+        )
+        if result.returncode == 0:
             return
+    except Exception:
+        pass
+
+    # Fallback: terminal-notifier
+    if os.path.exists(NOTIFIER):
+        try:
+            subprocess.run([
+                NOTIFIER,
+                "-title",   full_title,
+                "-message", message,
+                "-sender",  "com.apple.Terminal",
+                "-ignoreDnD",
+            ], capture_output=True, timeout=5)
         except Exception:
             pass
 
-    # Fallback: osascript (will appear as Script Editor but at least works)
-    safe_msg   = message.replace('"', '\\"')
-    safe_title = full_title.replace('"', '\\"')
-    os.system(f'osascript -e \'display notification "{safe_msg}" with title "{safe_title}"\'')
