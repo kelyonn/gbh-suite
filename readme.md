@@ -40,7 +40,7 @@ source ~/.zshrc
 
 That's it. All agents are registered as LaunchAgents and start immediately.
 
-**Requirements:** macOS, Homebrew, Python 3.11 (`brew install python@3.11`)
+**Requirements:** macOS, Homebrew, Python 3.11+ (auto-detected — uses project venv if present, otherwise system `python3`)
 
 ---
 
@@ -132,7 +132,7 @@ TRASH_WARN_GB           # Zero trash size warning
 
 ## Notifications
 
-All notifications use [`terminal-notifier`](https://github.com/julienXX/terminal-notifier) — they appear as proper macOS notifications attributed to each character, never Script Editor. Each staff member has a distinct sound.
+All notifications use `osascript` (native macOS, attributed to Terminal) with [`terminal-notifier`](https://github.com/julienXX/terminal-notifier) as a fallback. Each staff member has a distinct subtitle so you can tell them apart at a glance.
 
 Notifications are grouped per character in Notification Centre so they don't pile up.
 
@@ -147,7 +147,7 @@ gbh/
 ├── config.py             # All paths, thresholds, and lists
 ├── installer.sh          # One-shot setup script
 ├── staff/
-│   ├── notify.py         # Shared notification layer (terminal-notifier)
+│   ├── notify.py         # Shared notification layer (osascript + terminal-notifier fallback)
 │   ├── serge.py          # File sorter
 │   ├── dimitri.py        # Port/log/process sentinel
 │   ├── gustave.py        # Morning briefing
