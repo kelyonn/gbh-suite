@@ -173,7 +173,7 @@ def main():
 
     elif command == "stop":
         print("🔫 Stopping all GBH background tasks...")
-        # Match the actual cmdline: python3.11 .../main.py <subcommand>
+        # Kill by subcommand name in the process cmdline
         for sub in ("sort", "patrol", "jopling", "henckels"):
             os.system(f"pkill -f 'main.py {sub}'")
         os.system("pkill -f 'uvicorn server:app'")
