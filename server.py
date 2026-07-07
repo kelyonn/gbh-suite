@@ -17,6 +17,7 @@ from pathlib import Path
 import psutil
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 BASE_DIR = Path(__file__).resolve().parent
@@ -243,6 +244,7 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(title="GBH Concierge v2", lifespan=lifespan)
+app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 
 
