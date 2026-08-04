@@ -6,6 +6,7 @@ Real-time vitals, Serge feed, Ivan focus, Zero actions via REST + WebSocket.
 from __future__ import annotations
 
 import asyncio
+import json
 import shutil
 import socket
 import sys
@@ -33,6 +34,11 @@ from staff.ivan import Ivan as IvanClass  # noqa: E402
 BROADCAST_INTERVAL = 0.5
 ZERO_CHECK_INTERVAL = 60
 ZERO_LOG = BASE_DIR / "zero_last_run.txt"
+
+# How many broadcast ticks between refreshes of the "slow" vitals (staff,
+# ports, serge count) sent over the WebSocket — see the note above
+# broadcast_loop() for why these are decoupled from the 0.5s fast tick.
+SLOW_TICKS = round(5 / BROADCAST_INTERVAL)
 
 
 # ── Data Models ──────────────────────────────────────────────────
@@ -135,24 +141,45 @@ def _get_ports() -> list[dict]:
     return out
 
 
+# Cache for _serge_moves_today(): re-parsing the whole jsonl file (which only
+# ever grows) on every call was the worst offender in the old 0.5s broadcast
+# loop. Keyed on (mtime, size, date) so a real change — a new move logged, or
+# the day rolling over — still gets picked up; anything else is a cache hit.
+_serge_moves_cache: dict = {"mtime": None, "size": None, "date": None, "count": 0}
+
+
 def _serge_moves_today() -> int:
-    log = Path.home() / ".gbh" / "serge_moves.jsonl"
-    if not log.exists():
-        return 0
+    # Reuse serge.py's own MOVE_LOG constant rather than reconstructing the
+    # same path here — two hardcoded copies of "~/.gbh/serge_moves.jsonl"
+    # is exactly the kind of duplication that silently drifts apart.
+    log = serge_mod.MOVE_LOG
     today = datetime.now().date().isoformat()
+    cache = _serge_moves_cache
+
+    if not log.exists():
+        cache.update(mtime=None, size=None, date=today, count=0)
+        return 0
+
+    st = log.stat()
+    if cache["mtime"] == st.st_mtime and cache["size"] == st.st_size and cache["date"] == today:
+        return cache["count"]
+
     count = 0
     for line in log.read_text().splitlines():
         try:
-            import json
             entry = json.loads(line)
             if entry.get("ts", "").startswith(today):
                 count += 1
         except Exception:
             pass
+    cache.update(mtime=st.st_mtime, size=st.st_size, date=today, count=count)
     return count
 
 
-def get_vitals() -> Vitals:
+def _compute_fast_vitals() -> dict:
+    """cpu/ram/disk/battery/focus — cheap (psutil reads + one small state-file
+    read), and focus in particular drives the dashboard's live countdown
+    timer, so this is safe and worth recomputing on every broadcast tick."""
     cpu = psutil.cpu_percent(interval=None)
     mem = psutil.virtual_memory()
     _, _, free = shutil.disk_usage("/")
@@ -170,18 +197,38 @@ def get_vitals() -> Vitals:
     ivan = IvanClass()
     focus_raw = ivan.status()
 
-    return Vitals(
+    return dict(
         cpu_percent=cpu,
         ram_percent=mem.percent,
         disk_free_gb=free_gb,
         battery_percent=bat_pct,
         battery_plugged=bat_plug,
-        staff=_get_staff(),
         focus=FocusStatus(**focus_raw),
+    )
+
+
+def _compute_slow_vitals() -> dict:
+    """staff/ports/serge-count/zero — each does real blocking work:
+    _get_staff() walks every process on the system, _get_ports() opens up to
+    len(PERMANENT_PORTS) blocking sockets with a 0.3s timeout apiece (worst
+    case over a second, stalling the whole single-threaded event loop, not
+    just this coroutine), and _serge_moves_today() re-reads a log file. None
+    of it needs sub-second freshness — the dashboard only ever shows these as
+    coarse dots/counters/timestamps — so broadcast_loop() only calls this
+    once every SLOW_TICKS instead of every 0.5s tick."""
+    return dict(
+        staff=_get_staff(),
         zero_last_run=_zero_last_run(),
         ports=_get_ports(),
         serge_moves_today=_serge_moves_today(),
     )
+
+
+def get_vitals() -> Vitals:
+    """Full, fresh computation of every field. Used by the on-demand HTTP
+    routes (`/`, `/api/vitals`), which aren't called often enough for the
+    fast/slow split in broadcast_loop() to matter — correctness over cost."""
+    return Vitals(**_compute_fast_vitals(), **_compute_slow_vitals())
 
 
 # ── WebSocket broadcaster ────────────────────────────────────────
@@ -213,10 +260,19 @@ broadcaster = Broadcaster()
 
 async def broadcast_loop():
     zero_tick = 0
+    slow_vitals: dict | None = None
+    slow_tick = 0
     while True:
         if broadcaster._conns:
-            vitals = get_vitals()
+            # Refresh the slow fields at most once every SLOW_TICKS — and
+            # only while someone's actually watching, same as the original
+            # "do nothing with no viewers" behavior this loop always had.
+            if slow_vitals is None or slow_tick >= SLOW_TICKS:
+                slow_vitals = _compute_slow_vitals()
+                slow_tick = 0
+            vitals = Vitals(**_compute_fast_vitals(), **slow_vitals)
             await broadcaster.broadcast(vitals.to_dict())
+            slow_tick += 1
         zero_tick += BROADCAST_INTERVAL
         if zero_tick >= ZERO_CHECK_INTERVAL:
             zero_tick = 0
