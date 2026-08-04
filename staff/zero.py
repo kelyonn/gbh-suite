@@ -26,7 +26,9 @@ class Zero:
     def log(self, msg: str):
         print(f"🟣 {msg}", flush=True)
 
-    def clean_screenshots(self, days_old: int = 1) -> int:
+    def clean_screenshots(self, days_old: int | None = None) -> int:
+        if days_old is None:
+            days_old = config.SCREENSHOT_MAX_AGE_DAYS
         self.log(f"Sweeping Desktop for screenshots older than {days_old} day(s)...")
         cutoff = time.time() - (days_old * 86400)
         count = 0

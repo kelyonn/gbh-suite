@@ -60,12 +60,19 @@ def write_json(path: Path, data: dict) -> None:
 
 
 def delete_json(path: Path) -> None:
-    """Delete a JSON state file (and its lock file) if they exist."""
+    """Delete a JSON state file if it exists.
+
+    The companion .lock file is deliberately left in place. Unlinking it here
+    would break mutual exclusion: a concurrent waiter blocked on flock() holds a
+    descriptor to the old inode, so the next writer would create a fresh lock
+    file and acquire it immediately while that waiter still believes it holds
+    the lock. The lock files are empty and few, so leaking them is the cheap
+    correct choice.
+    """
     lock = _lock_path(path)
     with open(lock, "w") as lf:
         fcntl.flock(lf, fcntl.LOCK_EX)
         path.unlink(missing_ok=True)
-    lock.unlink(missing_ok=True)
 
 
 def append_jsonl(path: Path, record: dict) -> None:

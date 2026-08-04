@@ -96,7 +96,7 @@ def notify(
         return s.replace("\\", "\\\\").replace('"', '\\"')
 
     script_parts = [
-        f'tell application "System Events"',
+        'tell application "System Events"',
         f'  display notification "{_esc(message)}" with title "{_esc(full_title)}"',
     ]
     if subtitle:
