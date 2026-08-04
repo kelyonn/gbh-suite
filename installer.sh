@@ -26,9 +26,9 @@ echo ""
 # 1. Install dependencies
 echo "📦 Installing dependencies..."
 if [[ "$PYTHON" == *"/venv/"* ]]; then
-    $PYTHON -m pip install --quiet watchdog psutil fastapi uvicorn jinja2 httpx websockets
+    $PYTHON -m pip install --quiet watchdog psutil fastapi uvicorn jinja2 websockets
 else
-    $PYTHON -m pip install --user --quiet watchdog psutil fastapi uvicorn jinja2 httpx websockets
+    $PYTHON -m pip install --user --quiet watchdog psutil fastapi uvicorn jinja2 websockets
 fi
 brew install terminal-notifier --quiet 2>/dev/null || true
 echo "   ✅ Dependencies installed"

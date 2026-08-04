@@ -40,7 +40,9 @@ SERGE_DESTINATIONS = {
     "Audio":      [".mp3", ".wav", ".aac", ".flac", ".m4a", ".ogg"],
     "Video":      [".mp4", ".mkv", ".mov", ".avi", ".webm", ".m4v"],
     "Archives":   [".zip", ".rar", ".7z", ".tar", ".gz", ".iso", ".dmg"],
-    "Installers": [".pkg", ".app"],
+    # .app is deliberately absent: it is a directory bundle, and both sort paths
+    # guard on os.path.isfile(), so listing it here would never match.
+    "Installers": [".pkg"],
     "Code":       [".py", ".js", ".ts", ".html", ".css", ".java", ".cpp", ".c", ".sql", ".sh", ".json", ".ipynb", ".rb", ".go", ".rs"],
 }
 

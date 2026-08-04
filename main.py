@@ -20,6 +20,20 @@ from staff import (
 )
 
 
+def _flag_value(flag: str, default: str | None = None) -> str | None:
+    """Return the argument following *flag*, or *default*.
+
+    Returns the default when the flag is last on the line or is followed by
+    another flag, so `gbh clean --old` and `gbh clean --old --dupes x` both
+    degrade gracefully instead of raising.
+    """
+    try:
+        nxt = sys.argv[sys.argv.index(flag) + 1]
+    except (ValueError, IndexError):
+        return default
+    return default if nxt.startswith("-") else nxt
+
+
 def main():
     if len(sys.argv) < 2:
         g = gustave.Gustave()
@@ -53,17 +67,18 @@ def main():
     elif command == "clean":
         z = zero.Zero()
         if "--dupes" in sys.argv:
-            target = os.path.expanduser(sys.argv[sys.argv.index("--dupes") + 1]) \
-                if sys.argv.index("--dupes") + 1 < len(sys.argv) \
-                else os.path.expanduser("~/Downloads")
-            z.find_duplicates(target)
+            z.find_duplicates(os.path.expanduser(
+                _flag_value("--dupes", default="~/Downloads")
+            ))
         elif "--old" in sys.argv:
-            days = int(sys.argv[sys.argv.index("--old") + 1]) \
-                if sys.argv.index("--old") + 1 < len(sys.argv) \
-                else config.OLD_DOWNLOADS_DAYS
+            raw = _flag_value("--old")
+            if raw is not None and not raw.isdigit():
+                print(f"Usage: gbh clean --old [days] — '{raw}' is not a number.")
+                return
+            days = int(raw) if raw else config.OLD_DOWNLOADS_DAYS
             z.archive_old_downloads(days)
         else:
-            z.clean_screenshots(days_old=1)
+            z.clean_screenshots()
 
     elif command == "large":
         z = zero.Zero()
@@ -115,7 +130,7 @@ def main():
                 print("✅ No active focus session.")
         elif len(sys.argv) > 2 and sys.argv[2] == "pomodoro":
             cycles = int(sys.argv[3]) if len(sys.argv) > 3 and sys.argv[3].isdigit() else 4
-            iv.pomodoro(config.FOCUS_BLOCKLIST, cycles)
+            iv.pomodoro(config.FOCUS_BLOCKLIST, cycles, config.FOCUS_BLOCKED_APPS)
         else:
             minutes = int(sys.argv[2]) if len(sys.argv) > 2 and sys.argv[2].isdigit() else config.FOCUS_DEFAULT_MINUTES
             iv.start(minutes, config.FOCUS_BLOCKLIST, config.FOCUS_BLOCKED_APPS)

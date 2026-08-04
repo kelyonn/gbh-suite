@@ -221,7 +221,7 @@ async def broadcast_loop():
             if _zero_last_run() not in ("today",):
                 try:
                     z = zero_mod.Zero()
-                    z.clean_screenshots(days_old=0)
+                    z.clean_screenshots()
                     _zero_save_run()
                 except Exception:
                     pass
