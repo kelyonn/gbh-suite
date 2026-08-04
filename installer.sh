@@ -5,16 +5,27 @@
 set -e
 GBH_DIR="$(cd "$(dirname "$0")" && pwd)"
 
-# Detect Python interpreter (prefer project venv if it exists)
-if [ -f "$GBH_DIR/venv/bin/python3" ]; then
-    PYTHON="$GBH_DIR/venv/bin/python3"
-elif [ -f "$GBH_DIR/venv/bin/python" ]; then
-    PYTHON="$GBH_DIR/venv/bin/python"
-elif command -v python3 &>/dev/null; then
-    PYTHON="$(command -v python3)"
-else
-    PYTHON="/usr/bin/python3"
+# Always install into a project-local venv, creating it if it doesn't exist.
+#
+# This used to prefer an existing venv but silently fall back to the system
+# Python (with --user installs) if one wasn't there. That fallback is exactly
+# how a venv going missing turns into a full outage: every LaunchAgent plist
+# is baked with an absolute interpreter path at install time, so if the venv
+# it pointed to later disappears (as happened — deleted by something during
+# an unclean shutdown), the daemons don't fall back to anything; they just
+# fail with EX_CONFIG, silently, forever, because ProgramArguments[0] no
+# longer exists. Always creating the venv here means re-running this script
+# is a real fix for that state, not just a reconfirmation of a Python that
+# hasn't existed in days.
+if [ ! -f "$GBH_DIR/venv/bin/python3" ]; then
+    echo "🐍 No venv found — creating one..."
+    if ! command -v python3 &>/dev/null; then
+        echo "❌ python3 not found on PATH. Install Python 3.11+ and re-run this script." >&2
+        exit 1
+    fi
+    python3 -m venv "$GBH_DIR/venv"
 fi
+PYTHON="$GBH_DIR/venv/bin/python3"
 
 LAUNCH_AGENTS="$HOME/Library/LaunchAgents"
 
@@ -25,13 +36,22 @@ echo ""
 
 # 1. Install dependencies
 echo "📦 Installing dependencies..."
-if [[ "$PYTHON" == *"/venv/"* ]]; then
-    $PYTHON -m pip install --quiet watchdog psutil fastapi uvicorn jinja2 websockets
-else
-    $PYTHON -m pip install --user --quiet watchdog psutil fastapi uvicorn jinja2 websockets
-fi
+$PYTHON -m pip install --quiet --upgrade pip
+$PYTHON -m pip install --quiet watchdog psutil fastapi uvicorn jinja2 websockets
 brew install terminal-notifier --quiet 2>/dev/null || true
-echo "   ✅ Dependencies installed"
+
+# Verify the interpreter every plist is about to be pointed at can actually
+# import what the server and staff modules need. This is the check that
+# would have caught this session's outage in ten seconds instead of days:
+# don't declare success and wire up nine LaunchAgents around a Python that
+# can't run the code. Deliberately no `|| true` here — a broken environment
+# must stop the install, not get reported as done.
+if ! $PYTHON -c "import watchdog, psutil, fastapi, uvicorn, jinja2, websockets" 2>/dev/null; then
+    echo "❌ Dependency verification failed — $PYTHON cannot import required packages." >&2
+    echo "   Try removing venv/ and re-running this script." >&2
+    exit 1
+fi
+echo "   ✅ Dependencies installed and verified"
 
 # 2. Create runtime data dir
 mkdir -p "$HOME/.gbh"
@@ -54,12 +74,14 @@ fi
 # 3. Install LaunchAgents
 echo ""
 echo "🔧 Installing LaunchAgents..."
+FAILED_AGENTS=()
 for plist in "$GBH_DIR/launchagents/"*.plist; do
     name=$(basename "$plist")
     label="${name%.plist}"
     dest="$LAUNCH_AGENTS/$name"
 
-    # Bootout if already loaded (safe to ignore if not loaded)
+    # Bootout if already loaded (safe to ignore if not loaded — that's the
+    # expected case on a first install, so this one's || true is correct).
     launchctl bootout "gui/$UID/$label" 2>/dev/null || true
 
     # Copy plist file and substitute placeholders dynamically
@@ -67,10 +89,30 @@ for plist in "$GBH_DIR/launchagents/"*.plist; do
         -e "s|/opt/homebrew/bin/python3.11|$PYTHON|g" \
         "$plist" > "$dest"
 
-    # Bootstrap into the gui domain — persists across reboots
-    launchctl bootstrap "gui/$UID" "$dest" 2>/dev/null || true
-    launchctl enable "gui/$UID/$label" 2>/dev/null || true
-    echo "   ✅ $name"
+    # Bootstrap into the gui domain — persists across reboots. Unlike the
+    # steps above, a failure here is real and must be reported as one: the
+    # old `|| true` printed "✅ $name" even when bootstrap failed, which is
+    # exactly the kind of silent lie that let a dead daemon look installed.
+    #
+    # bootstrap can race the bootout just above it — observed firsthand on
+    # the server agent, whose bootstrap failed immediately after bootout
+    # (port 2525 not yet released) and then succeeded on the very next
+    # attempt. Retry briefly before treating it as a genuine failure.
+    ok=false
+    for attempt in 1 2 3; do
+        if launchctl bootstrap "gui/$UID" "$dest" 2>/dev/null; then
+            ok=true
+            break
+        fi
+        sleep 0.5
+    done
+    if $ok; then
+        launchctl enable "gui/$UID/$label" 2>/dev/null || true
+        echo "   ✅ $name"
+    else
+        echo "   ❌ $name — bootstrap failed" >&2
+        FAILED_AGENTS+=("$label")
+    fi
 done
 
 # 4. Add gbh alias to .zshrc if not present
@@ -85,7 +127,14 @@ fi
 
 
 echo ""
-echo "✅ Installation complete!"
-echo ""
-echo "   Run 'source ~/.zshrc' then try: gbh"
-echo "   Dashboard: http://127.0.0.1:2525"
+if [ ${#FAILED_AGENTS[@]} -eq 0 ]; then
+    echo "✅ Installation complete!"
+    echo ""
+    echo "   Run 'source ~/.zshrc' then try: gbh"
+    echo "   Dashboard: http://127.0.0.1:2525"
+else
+    echo "⚠️  Installation finished with ${#FAILED_AGENTS[@]} failed agent(s): ${FAILED_AGENTS[*]}" >&2
+    echo "   Everything else installed. Investigate with:" >&2
+    echo "   launchctl bootstrap gui/\$UID ~/Library/LaunchAgents/<label>.plist" >&2
+    exit 1
+fi
