@@ -59,6 +59,33 @@ def test_osascript_fallback_used_when_notifier_missing(
     assert "Focus Mode" in script  # Ivan's subtitle
 
 
+def test_urgent_overrides_default_sound(tmp_path, monkeypatch, no_real_notifications):
+    """Regression test: `urgent` was accepted as a parameter and documented
+    ("uses a more attention-grabbing sound") but never actually consulted —
+    passing urgent=True changed nothing. Doctor's outage alert relies on it
+    landing louder than a routine per-staff sound."""
+    fake_notifier = tmp_path / "terminal-notifier"
+    fake_notifier.write_text("#!/bin/sh\n")
+    monkeypatch.setattr(notify, "NOTIFIER", str(fake_notifier))
+
+    notify.notify("Gustave", "something's actually wrong", urgent=True)
+
+    cmd = no_real_notifications[0]
+    assert "-sound" in cmd
+    assert cmd[cmd.index("-sound") + 1] == "Basso"
+
+
+def test_explicit_sound_still_wins_over_urgent(tmp_path, monkeypatch, no_real_notifications):
+    fake_notifier = tmp_path / "terminal-notifier"
+    fake_notifier.write_text("#!/bin/sh\n")
+    monkeypatch.setattr(notify, "NOTIFIER", str(fake_notifier))
+
+    notify.notify("Gustave", "msg", sound="Frog", urgent=True)
+
+    cmd = no_real_notifications[0]
+    assert cmd[cmd.index("-sound") + 1] == "Frog"
+
+
 def test_osascript_escapes_quotes_in_message(tmp_path, monkeypatch, no_real_notifications):
     monkeypatch.setattr(notify, "NOTIFIER", str(tmp_path / "does-not-exist"))
 

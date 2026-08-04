@@ -180,7 +180,7 @@ def main():
     # ── Doctor ────────────────────────────────────────────────────
     elif command == "doctor":
         from staff.doctor import Doctor
-        Doctor().run()
+        Doctor().run(notify="--notify" in sys.argv)
 
     # ── Misc ──────────────────────────────────────────────────────
     elif command == "open":
@@ -220,6 +220,7 @@ def main():
   gbh open                 Open dashboard in browser
   gbh stop                 Kill background tasks
   gbh doctor               System health check
+  gbh doctor --notify      Health check; silent unless something's broken
 """)
 
 

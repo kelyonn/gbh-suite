@@ -32,6 +32,7 @@ STAFF_SOUNDS: dict[str, str] = {
     "Clotilde": "Glass",
     "Ludwig":   "Hero",
     "Agatha":   "Purr",
+    "Doctor":   "Ping",
     "Default":  "default",
 }
 
@@ -48,6 +49,7 @@ STAFF_SUBTITLES: dict[str, str] = {
     "Clotilde": "Cache Sweeper",
     "Ludwig":   "Inspector",
     "Agatha":   "Archivist",
+    "Doctor":   "Health Check",
 }
 
 
@@ -70,7 +72,17 @@ def notify(
     """
     full_title = title or f"GBH  ·  {staff}"
     subtitle   = STAFF_SUBTITLES.get(staff, "")
-    snd        = sound or STAFF_SOUNDS.get(staff, "default")
+    # `urgent` was previously accepted but never actually consulted here —
+    # the docstring promised "a more attention-grabbing sound" that never
+    # happened. An explicit `sound` still wins; `urgent` only overrides the
+    # per-staff default, reusing Jopling's Basso as the shared "something's
+    # actually wrong" cue rather than inventing a second one.
+    if sound:
+        snd = sound
+    elif urgent:
+        snd = "Basso"
+    else:
+        snd = STAFF_SOUNDS.get(staff, "default")
 
     # Primary: terminal-notifier — supports -appIcon for custom icon
     if os.path.exists(NOTIFIER):

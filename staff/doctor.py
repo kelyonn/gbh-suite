@@ -1,11 +1,13 @@
 """
 Doctor — GBH system health check.
 Run with: gbh doctor
+Run with: gbh doctor --notify   (silent when healthy; one notification when not)
 
 Checks every moving part of the suite and prints a clear report with
 suggested fix commands for anything that looks wrong.
 """
 
+import re
 import shutil
 import socket
 import subprocess
@@ -15,9 +17,17 @@ from pathlib import Path
 import psutil
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from staff.notify import notify as _send_notify  # noqa: E402
 
 GBH_DATA    = Path.home() / ".gbh"
 LAUNCH_AGENTS_DIR = Path.home() / "Library/LaunchAgents"
+
+_ANSI_RE = re.compile(r"\033\[[0-9;]*m")
+
+
+def _plain(line: str) -> str:
+    """Strip ANSI colour codes for notification text / non-terminal output."""
+    return _ANSI_RE.sub("", line).strip()
 
 # plist label → friendly name → expected cmdline substring
 DAEMONS = {
@@ -185,7 +195,7 @@ def check_focus_state() -> list[str]:
 # ── Doctor ───────────────────────────────────────────────────────
 
 class Doctor:
-    def run(self) -> None:
+    def run(self, notify: bool = False) -> None:
         print(f"\n{_BOLD}🏨 GBH Doctor{_RESET}\n" + _hr())
 
         all_lines: list[str] = []
@@ -214,11 +224,27 @@ class Doctor:
             all_lines.append(line)
 
         # Summary
-        issues = sum(1 for line in all_lines if line.startswith(f"{_RED}❌") or "⚠️" in line)
+        issue_lines = [
+            line for line in all_lines
+            if line.startswith(f"{_RED}❌") or "⚠️" in line
+        ]
+        issues = len(issue_lines)
         print("\n" + _hr())
         if issues == 0:
             print(f"\n{_GREEN}{_BOLD}All good.{_RESET} No issues found.\n")
         else:
             print(f"\n{_RED}{_BOLD}{issues} issue(s) found.{_RESET} See fix hints above.\n")
+
+        if notify and issues > 0:
+            # Only notify when something's actually wrong — same "never nags"
+            # rule as Kovacs/Ludwig. This is the check meant to catch the
+            # class of outage that motivated it: every LaunchAgent silently
+            # dead for days because their venv disappeared, discovered only
+            # because a webpage didn't load.
+            labels = [_plain(line).lstrip("❌⚠️ ") for line in issue_lines]
+            summary = " · ".join(labels[:3])
+            if len(labels) > 3:
+                summary += f" +{len(labels) - 3} more"
+            _send_notify("Doctor", f"{issues} issue(s) — {summary}", urgent=True)
 
         sys.exit(0 if issues == 0 else 1)
