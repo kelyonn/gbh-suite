@@ -122,3 +122,73 @@ def test_websocket_with_forged_host_is_rejected(client):
 def test_websocket_with_legitimate_host_connects(client):
     with client.websocket_connect("/ws/vitals", headers={"Host": "127.0.0.1:2525"}) as ws:
         ws.close()
+
+
+# ── Phase 5: broadcast-loop fast/slow split and the serge-count cache ─────
+
+def test_fast_and_slow_vitals_together_cover_every_dataclass_field(
+    gbh_home, no_real_network_side_effects
+):
+    """Regression test for the fast/slow split: _compute_fast_vitals() and
+    _compute_slow_vitals() together must supply exactly the Vitals dataclass's
+    constructor fields, no more and no less — that's what guarantees
+    Vitals(**fast, **slow) in both get_vitals() and broadcast_loop() actually
+    constructs (no missing/unexpected kwargs) and produces the same payload
+    shape the frontend has always received."""
+    import dataclasses
+
+    fast = server._compute_fast_vitals()
+    slow = server._compute_slow_vitals()
+
+    expected_fields = {f.name for f in dataclasses.fields(server.Vitals)}
+    assert set(fast) | set(slow) == expected_fields
+    assert set(fast) & set(slow) == set()  # no field computed by both
+
+    # Must actually construct without error, exactly like both call sites do.
+    vitals = server.Vitals(**fast, **slow)
+    assert vitals.to_dict()["staff"] == dataclasses.asdict(slow["staff"])
+
+
+def test_serge_moves_today_cache_hit_skips_reparsing(gbh_home):
+    """Regression test: the old implementation re-read and re-parsed the
+    entire jsonl file on every call (twice a second, forever, in the
+    broadcast loop) and did `import json` inside that per-line loop.
+
+    Proven directly rather than by spying on Path.read_text (which would
+    have to be patched at the Path class level, risking interference with
+    unrelated code running during the test): plant an impossible sentinel
+    count in the cache dict alongside the file's real (mtime, size, date).
+    If _serge_moves_today() actually re-reads and re-parses the file when
+    called again, the true count would overwrite the sentinel. If it trusts
+    the cache — the behavior being tested — the sentinel comes straight
+    back.
+    """
+    import server as server_mod
+    from staff import serge as serge_mod
+
+    serge_mod._log_move("/src/a.png", "/dst/a.png", "Images")
+    server_mod._serge_moves_today()  # populate the cache with real values
+
+    st = serge_mod.MOVE_LOG.stat()
+    today = server_mod.datetime.now().date().isoformat()
+    server_mod._serge_moves_cache.update(
+        mtime=st.st_mtime, size=st.st_size, date=today, count=999999
+    )
+
+    assert server_mod._serge_moves_today() == 999999
+
+
+def test_serge_moves_today_cache_invalidates_on_new_move(gbh_home):
+    import server as server_mod
+    from staff import serge as serge_mod
+
+    serge_mod._log_move("/src/a.png", "/dst/a.png", "Images")
+    assert server_mod._serge_moves_today() == 1
+
+    serge_mod._log_move("/src/b.png", "/dst/b.png", "Images")
+    assert server_mod._serge_moves_today() == 2
+
+
+def test_serge_moves_today_missing_file_returns_zero(gbh_home):
+    import server as server_mod
+    assert server_mod._serge_moves_today() == 0
