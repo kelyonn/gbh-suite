@@ -37,6 +37,20 @@ echo "   ✅ Dependencies installed"
 mkdir -p "$HOME/.gbh"
 echo "   ✅ ~/.gbh created"
 
+# 2b. Install the notification bundle
+# staff/notify.py passes `-sender com.gbh.concierge` to terminal-notifier. For macOS
+# to resolve that bundle ID to our icon, the .app must exist somewhere LaunchServices
+# has indexed — otherwise notifications fall back to the generic terminal icon.
+APP_BUNDLE="GBH Concierge.app"
+if [ -d "$GBH_DIR/$APP_BUNDLE" ]; then
+    mkdir -p "$HOME/Applications"
+    rm -rf "$HOME/Applications/$APP_BUNDLE"
+    cp -R "$GBH_DIR/$APP_BUNDLE" "$HOME/Applications/$APP_BUNDLE"
+    LSREGISTER="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
+    [ -x "$LSREGISTER" ] && "$LSREGISTER" -f "$HOME/Applications/$APP_BUNDLE" 2>/dev/null || true
+    echo "   ✅ $APP_BUNDLE registered (notification icon)"
+fi
+
 # 3. Install LaunchAgents
 echo ""
 echo "🔧 Installing LaunchAgents..."
