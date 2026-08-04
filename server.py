@@ -16,9 +16,11 @@ from pathlib import Path
 
 import psutil
 from fastapi import FastAPI, Request, WebSocket, WebSocketDisconnect
+from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from starlette.middleware.base import BaseHTTPMiddleware
 
 BASE_DIR = Path(__file__).resolve().parent
 sys.path.insert(0, str(BASE_DIR))
@@ -243,7 +245,51 @@ async def lifespan(app: FastAPI):
             pass
 
 
+# ── Cross-origin / cross-site request guard ─────────────────────
+#
+# This server binds to 127.0.0.1 with no auth, on the assumption that only
+# the machine's own user can reach it. That assumption breaks the moment any
+# page you have open in a browser can also reach it: a "simple" cross-site
+# POST (no custom headers, so no CORS preflight) to e.g. /api/clean or
+# /api/focus/stop lands with the browser silently attaching your cookies —
+# there are none here, but the request still executes and has a real side
+# effect. This isn't a CORS problem (CORS only gates whether JS can *read*
+# the response) — it's a same-origin-request-forgery problem, so the fix is
+# to reject mutating requests that didn't originate from this app's own
+# pages, not to add CORS headers.
+_ALLOWED_ORIGINS = {
+    f"http://{config.SERVER_HOST}:{config.SERVER_PORT}",
+    f"http://localhost:{config.SERVER_PORT}",
+}
+_MUTATING_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
+
+
+class OriginGuardMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        if request.method in _MUTATING_METHODS:
+            # Modern Chromium/Firefox: authoritative, can't be spoofed by page JS.
+            fetch_site = request.headers.get("sec-fetch-site")
+            if fetch_site is not None:
+                if fetch_site not in ("same-origin", "none"):
+                    return JSONResponse({"detail": "cross-site request rejected"}, status_code=403)
+            else:
+                # Older browsers / non-browser clients: fall back to Origin,
+                # which browsers attach to same-origin POSTs too. Only reject
+                # when it's present AND wrong — curl/scripts send neither
+                # header and are trusted, matching "only reachable from this
+                # machine" the same way the bare 127.0.0.1 bind always was.
+                origin = request.headers.get("origin")
+                if origin is not None and origin not in _ALLOWED_ORIGINS:
+                    return JSONResponse({"detail": "cross-origin request rejected"}, status_code=403)
+        return await call_next(request)
+
+
 app = FastAPI(title="GBH Concierge v2", lifespan=lifespan)
+app.add_middleware(OriginGuardMiddleware)
+app.add_middleware(
+    TrustedHostMiddleware,
+    allowed_hosts=[config.SERVER_HOST, "localhost"],
+)
 app.mount("/static", StaticFiles(directory=str(BASE_DIR / "static")), name="static")
 templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 
