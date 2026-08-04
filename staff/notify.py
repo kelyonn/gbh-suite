@@ -1,6 +1,6 @@
 """
 GBH Notify Utility
-Sends macOS notifications via osascript (primary) with terminal-notifier fallback.
+Sends macOS notifications via terminal-notifier (primary) with osascript fallback.
 
 Usage:
     from staff.notify import notify
@@ -11,8 +11,13 @@ Usage:
 import os
 import shutil
 import subprocess
+from pathlib import Path
 
 NOTIFIER = shutil.which("terminal-notifier") or "/opt/homebrew/bin/terminal-notifier"
+
+# Absolute path to the GBH favicon used as the notification icon
+_BASE_DIR = Path(__file__).resolve().parent.parent
+ICON_PATH = str(_BASE_DIR / "static" / "favicon.png")
 
 # Per-staff sounds — matches each character's personality
 STAFF_SOUNDS: dict[str, str] = {
@@ -65,12 +70,31 @@ def notify(
     """
     full_title = title or f"GBH  ·  {staff}"
     subtitle   = STAFF_SUBTITLES.get(staff, "")
+    snd        = sound or STAFF_SOUNDS.get(staff, "default")
 
-    # Escape quotes for AppleScript strings
+    # Primary: terminal-notifier — supports -appIcon for custom icon
+    if os.path.exists(NOTIFIER):
+        try:
+            cmd = [
+                NOTIFIER,
+                "-title",   full_title,
+                "-message", message,
+                "-sender", "com.gbh.concierge",
+                "-ignoreDnD",
+            ]
+            if subtitle:
+                cmd += ["-subtitle", subtitle]
+            if snd and snd != "default":
+                cmd += ["-sound", snd]
+            subprocess.run(cmd, capture_output=True, timeout=5)
+            return
+        except Exception:
+            pass
+
+    # Fallback: osascript
     def _esc(s: str) -> str:
         return s.replace("\\", "\\\\").replace('"', '\\"')
 
-    # Primary: osascript — reliable on all modern macOS, Terminal already has permission
     script_parts = [
         f'tell application "System Events"',
         f'  display notification "{_esc(message)}" with title "{_esc(full_title)}"',
@@ -83,25 +107,9 @@ def notify(
     script_parts.append("end tell")
 
     try:
-        result = subprocess.run(
+        subprocess.run(
             ["osascript", "-e", "\n".join(script_parts)],
             capture_output=True, timeout=5,
         )
-        if result.returncode == 0:
-            return
     except Exception:
         pass
-
-    # Fallback: terminal-notifier
-    if os.path.exists(NOTIFIER):
-        try:
-            subprocess.run([
-                NOTIFIER,
-                "-title",   full_title,
-                "-message", message,
-                "-sender",  "com.apple.Terminal",
-                "-ignoreDnD",
-            ], capture_output=True, timeout=5)
-        except Exception:
-            pass
-
