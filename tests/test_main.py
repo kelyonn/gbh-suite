@@ -119,3 +119,39 @@ def test_focus_pomodoro_forwards_configured_blocked_apps(monkeypatch):
 
     assert captured["cycles"] == 2
     assert captured["blocked_apps"] == config.FOCUS_BLOCKED_APPS
+
+
+def test_doctor_notify_flag_forwarded(monkeypatch):
+    import sys
+
+    from staff.doctor import Doctor
+
+    captured = {}
+    monkeypatch.setattr(Doctor, "run", lambda self, notify=False: captured.update(notify=notify))
+
+    old_argv = sys.argv
+    sys.argv = ["main.py", "doctor", "--notify"]
+    try:
+        main.main()
+    finally:
+        sys.argv = old_argv
+
+    assert captured["notify"] is True
+
+
+def test_doctor_without_flag_does_not_request_notify(monkeypatch):
+    import sys
+
+    from staff.doctor import Doctor
+
+    captured = {}
+    monkeypatch.setattr(Doctor, "run", lambda self, notify=False: captured.update(notify=notify))
+
+    old_argv = sys.argv
+    sys.argv = ["main.py", "doctor"]
+    try:
+        main.main()
+    finally:
+        sys.argv = old_argv
+
+    assert captured["notify"] is False
