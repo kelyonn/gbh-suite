@@ -17,3 +17,7 @@ __pycache__/
 *.zip
 
 zero_last_run.txt
+
+# Personal interview notes (not part of the product)
+INTERVIEW_PREP.md
+INTERVIEW_PREP.pdf

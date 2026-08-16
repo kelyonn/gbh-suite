@@ -192,6 +192,39 @@ def check_focus_state() -> list[str]:
     return lines
 
 
+def check_notifications() -> list[str]:
+    """Probe real delivery so silent drops can't hide for months again."""
+    from staff.notify import probe, recent_audit, AUDIT_LOG, _resolve_notifier
+
+    lines: list[str] = []
+    notifier = _resolve_notifier()
+    if notifier:
+        lines.append(_ok(f"terminal-notifier at {notifier}"))
+    else:
+        lines.append(_warn("terminal-notifier not found (osascript-only fallback)"))
+        lines.append(_fix("brew install terminal-notifier && bash installer.sh"))
+
+    result = probe()
+    if result["ok"]:
+        lines.append(_ok(f"Notify probe delivered via {result['via']}"))
+    else:
+        lines.append(_err(f"Notify probe FAILED — {result['detail']}"))
+        if result.get("fix_hint"):
+            lines.append(_fix(result["fix_hint"]))
+
+    # Recent audit: warn if the last few real (non-probe) attempts all failed
+    recent = [r for r in recent_audit(20) if not r.get("probe")]
+    if recent:
+        last = recent[-1]
+        if last.get("ok"):
+            lines.append(_ok(f"Last notify ok via {last.get('via')} ({last.get('staff')})"))
+        else:
+            lines.append(_warn(
+                f"Last notify FAILED for {last.get('staff')} — see {AUDIT_LOG}"
+            ))
+    return lines
+
+
 # ── Doctor ───────────────────────────────────────────────────────
 
 class Doctor:
@@ -220,6 +253,12 @@ class Doctor:
         print("\n" + _hr())
         print("\nIvan / Focus")
         for line in check_focus_state():
+            print("  " + line)
+            all_lines.append(line)
+
+        print("\n" + _hr())
+        print("\nNotifications")
+        for line in check_notifications():
             print("  " + line)
             all_lines.append(line)
 

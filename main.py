@@ -182,6 +182,27 @@ def main():
         from staff.doctor import Doctor
         Doctor().run(notify="--notify" in sys.argv)
 
+    elif command in ("notify-test", "notify_test"):
+        from staff.notify import notify, probe, recent_audit
+        print("🔔 Running notification probe…")
+        result = probe()
+        if result["ok"]:
+            print(f"   ✅ Probe OK via {result['via']}")
+        else:
+            print(f"   ❌ Probe FAILED: {result['detail']}")
+            if result.get("fix_hint"):
+                print(f"   → {result['fix_hint']}")
+        print("🔔 Sending staff samples (Kovacs, Ludwig, Serge)…")
+        ok1 = notify("Kovacs", "Notify-test: evening git style alert.")
+        ok2 = notify("Ludwig", "Notify-test: weekly inspection style alert.")
+        ok3 = notify("Serge", "Notify-test: file sorter style alert.")
+        print(f"   Kovacs={ok1}  Ludwig={ok2}  Serge={ok3}")
+        print("   Recent audit:")
+        for row in recent_audit(5):
+            print(f"     ok={row.get('ok')} via={row.get('via')} staff={row.get('staff')} msg={row.get('message')}")
+        if not (result["ok"] and ok1 and ok2 and ok3):
+            sys.exit(1)
+
     # ── Misc ──────────────────────────────────────────────────────
     elif command == "open":
         subprocess.run(["open", f"http://{config.SERVER_HOST}:{config.SERVER_PORT}"])
@@ -221,6 +242,7 @@ def main():
   gbh stop                 Kill background tasks
   gbh doctor               System health check
   gbh doctor --notify      Health check; silent unless something's broken
+  gbh notify-test          Probe notification delivery end-to-end
 """)
 
 
