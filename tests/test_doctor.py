@@ -25,6 +25,7 @@ def _stub_all_checks(monkeypatch, *, daemon_lines):
     monkeypatch.setattr(doctor, "check_data_dir", lambda: [doctor._ok("~/.gbh/ exists")])
     monkeypatch.setattr(doctor, "check_tools", lambda: [doctor._ok("terminal-notifier installed")])
     monkeypatch.setattr(doctor, "check_focus_state", lambda: [doctor._ok("no active session")])
+    monkeypatch.setattr(doctor, "check_notifications", lambda: [doctor._ok("Notify probe delivered")])
 
 
 def test_no_notification_when_everything_is_healthy(monkeypatch, spy_notify):

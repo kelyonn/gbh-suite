@@ -57,18 +57,90 @@ echo "   ✅ Dependencies installed and verified"
 mkdir -p "$HOME/.gbh"
 echo "   ✅ ~/.gbh created"
 
-# 2b. Install the notification bundle
-# staff/notify.py passes `-sender com.gbh.concierge` to terminal-notifier. For macOS
-# to resolve that bundle ID to our icon, the .app must exist somewhere LaunchServices
-# has indexed — otherwise notifications fall back to the generic terminal icon.
+# Install the notification stack properly (this is what silently broke for months).
+#
+# Rules:
+#   1. NEVER attribute notifications to com.gbh.concierge via -sender unless
+#      Concierge.app has a real executable AND Notification Centre permission.
+#   2. Copy terminal-notifier.app into ~/Applications and register it so macOS
+#      actually grants/keeps notification permission for the helper.
+#   3. Run an end-to-end probe; refuse to declare success if delivery fails.
+mkdir -p "$HOME/Applications"
+LSREGISTER="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
+
+# Ensure Concierge.app has a real (no-op) executable so it is a valid bundle.
 APP_BUNDLE="GBH Concierge.app"
 if [ -d "$GBH_DIR/$APP_BUNDLE" ]; then
-    mkdir -p "$HOME/Applications"
+    mkdir -p "$GBH_DIR/$APP_BUNDLE/Contents/MacOS"
+    cat > "$GBH_DIR/$APP_BUNDLE/Contents/MacOS/GBHConcierge" <<'STUB'
+#!/bin/bash
+# Minimal executable so Launch Services treats this as a real app bundle.
+exit 0
+STUB
+    chmod +x "$GBH_DIR/$APP_BUNDLE/Contents/MacOS/GBHConcierge"
+    # Ensure Info.plist declares the executable (idempotent-ish via rewrite).
+    cat > "$GBH_DIR/$APP_BUNDLE/Contents/Info.plist" <<'PLIST'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>CFBundleExecutable</key>
+    <string>GBHConcierge</string>
+    <key>CFBundleIdentifier</key>
+    <string>com.gbh.concierge</string>
+    <key>CFBundleName</key>
+    <string>GBH Concierge</string>
+    <key>CFBundlePackageType</key>
+    <string>APPL</string>
+    <key>CFBundleIconFile</key>
+    <string>AppIcon</string>
+    <key>LSUIElement</key>
+    <true/>
+</dict>
+</plist>
+PLIST
     rm -rf "$HOME/Applications/$APP_BUNDLE"
     cp -R "$GBH_DIR/$APP_BUNDLE" "$HOME/Applications/$APP_BUNDLE"
-    LSREGISTER="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
     [ -x "$LSREGISTER" ] && "$LSREGISTER" -f "$HOME/Applications/$APP_BUNDLE" 2>/dev/null || true
-    echo "   ✅ $APP_BUNDLE registered (notification icon)"
+    echo "   ✅ $APP_BUNDLE installed with real executable stub"
+fi
+
+# Copy terminal-notifier into ~/Applications (cellar path alone is flaky on modern macOS)
+TN_SRC=""
+for candidate in \
+    "/opt/homebrew/Cellar/terminal-notifier/"*"/terminal-notifier.app" \
+    "/usr/local/Cellar/terminal-notifier/"*"/terminal-notifier.app"
+do
+    if [ -d "$candidate" ]; then
+        TN_SRC="$candidate"
+        break
+    fi
+done
+if [ -n "$TN_SRC" ]; then
+    rm -rf "$HOME/Applications/terminal-notifier.app"
+    cp -R "$TN_SRC" "$HOME/Applications/terminal-notifier.app"
+    [ -x "$LSREGISTER" ] && "$LSREGISTER" -f "$HOME/Applications/terminal-notifier.app" 2>/dev/null || true
+    # Opening once forces Notification Centre to register the app / show the
+    # permission prompt if needed. Harmless if already allowed.
+    open "$HOME/Applications/terminal-notifier.app" 2>/dev/null || true
+    echo "   ✅ terminal-notifier.app installed in ~/Applications"
+else
+    echo "   ⚠️  terminal-notifier.app not found in Homebrew Cellar" >&2
+fi
+
+echo ""
+echo "🔔 Probing notification delivery…"
+if $PYTHON -c "from staff.notify import probe; import sys; r=probe(); print(r); sys.exit(0 if r.get('ok') else 1)"; then
+    echo "   ✅ Notify probe passed"
+else
+    echo "   ❌ Notify probe FAILED" >&2
+    echo "      System Settings → Notifications → enable Banners for:" >&2
+    echo "        • Script Editor (osascript)" >&2
+    echo "        • terminal-notifier" >&2
+    echo "      Then re-run: bash installer.sh" >&2
+    echo "      Or test with: $PYTHON $GBH_DIR/main.py notify-test" >&2
+    # Don't abort the whole install — agents still matter — but surface loudly.
+    NOTIFY_PROBE_FAILED=1
 fi
 
 # 3. Install LaunchAgents
@@ -127,11 +199,17 @@ fi
 
 
 echo ""
-if [ ${#FAILED_AGENTS[@]} -eq 0 ]; then
+if [ ${#FAILED_AGENTS[@]} -eq 0 ] && [ "${NOTIFY_PROBE_FAILED:-0}" != "1" ]; then
     echo "✅ Installation complete!"
     echo ""
     echo "   Run 'source ~/.zshrc' then try: gbh"
     echo "   Dashboard: http://127.0.0.1:2525"
+    echo "   Notify test: gbh notify-test"
+elif [ ${#FAILED_AGENTS[@]} -eq 0 ]; then
+    echo "⚠️  Agents installed, but notifications are NOT delivering." >&2
+    echo "   Fix System Settings → Notifications (Banners), then:" >&2
+    echo "   $PYTHON $GBH_DIR/main.py notify-test" >&2
+    exit 1
 else
     echo "⚠️  Installation finished with ${#FAILED_AGENTS[@]} failed agent(s): ${FAILED_AGENTS[*]}" >&2
     echo "   Everything else installed. Investigate with:" >&2

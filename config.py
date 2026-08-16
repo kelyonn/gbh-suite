@@ -70,7 +70,7 @@ TRASH_WARN_GB = 5                # Warn when Trash exceeds this
 FOCUS_BLOCKLIST = [
     # Social
     "reddit.com", "twitter.com", "x.com", "instagram.com",
-    "facebook.com", "tiktok.com", "linkedin.com", "threads.net",
+    "facebook.com", "linkedin.com", "threads.net",
     "pinterest.com", "snapchat.com", "tumblr.com", "bsky.app",
     # Video / entertainment
     "youtube.com", "netflix.com", "twitch.tv",
