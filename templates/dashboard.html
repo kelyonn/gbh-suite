@@ -713,11 +713,15 @@ body {
       if(empty) empty.remove();
       feed.innerHTML='';
       d.moves.forEach(function(m){
+        // m.filename is whatever a file on disk happened to be named — build
+        // this with textContent, not innerHTML, so a filename like
+        // "<img src=x onerror=...>" renders as text instead of executing.
         var el = document.createElement('div'); el.className='feed-item';
         var t = new Date(m.ts); var timeStr = t.toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit'});
-        el.innerHTML='<span class="fi-name">'+m.filename+'</span>'
-          +'<span class="fi-cat">'+m.category+'</span>'
-          +'<span class="fi-time">'+timeStr+'</span>';
+        var name = document.createElement('span'); name.className='fi-name'; name.textContent = m.filename;
+        var cat  = document.createElement('span'); cat.className='fi-cat';   cat.textContent  = m.category;
+        var time = document.createElement('span'); time.className='fi-time'; time.textContent = timeStr;
+        el.append(name, cat, time);
         feed.prepend(el);
       });
     }).catch(function(){});
