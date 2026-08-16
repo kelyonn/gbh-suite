@@ -515,7 +515,12 @@ class Ivan:
 
         if remaining == 0:
             # Expired (e.g. Mac restarted mid-session) — clean up safely.
+            # This is the path taken when start()'s loop is gone, so it must do
+            # everything stop() does: SIGCONT the suspended apps (otherwise they
+            # stay frozen until reboot) and record the session before clearing.
             _unblock_sites()
+            _resume_apps(state.get("suspended_app_pids") or {})
+            _record_session(state)
             _clear_state()
             return {"active": False, "paused": False, "remaining_sec": 0,
                     "duration_min": 0, "ends_at": None}
@@ -527,12 +532,13 @@ class Ivan:
             "ends_at": state.get("ends_at"),
         }
 
-    def pomodoro(self, blocklist: list[str], cycles: int = 4) -> None:
+    def pomodoro(self, blocklist: list[str], cycles: int = 4,
+                 blocked_apps: list[str] | None = None) -> None:
         from config import FOCUS_BREAK_MINUTES, FOCUS_DEFAULT_MINUTES
         print(f"🍅 Pomodoro: {cycles} × {FOCUS_DEFAULT_MINUTES}m focus / {FOCUS_BREAK_MINUTES}m break")
         for i in range(cycles):
             print(f"\n── Cycle {i + 1}/{cycles} ──")
-            self.start(FOCUS_DEFAULT_MINUTES, blocklist)
+            self.start(FOCUS_DEFAULT_MINUTES, blocklist, blocked_apps)
             if i < cycles - 1:
                 _send_notify("Ivan", f"Break — {FOCUS_BREAK_MINUTES} minutes.")
                 print(f"☕ Break for {FOCUS_BREAK_MINUTES} minutes…")

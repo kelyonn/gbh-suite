@@ -1,11 +1,13 @@
 """
 Doctor — GBH system health check.
 Run with: gbh doctor
+Run with: gbh doctor --notify   (silent when healthy; one notification when not)
 
 Checks every moving part of the suite and prints a clear report with
 suggested fix commands for anything that looks wrong.
 """
 
+import re
 import shutil
 import socket
 import subprocess
@@ -15,9 +17,17 @@ from pathlib import Path
 import psutil
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from staff.notify import notify as _send_notify  # noqa: E402
 
 GBH_DATA    = Path.home() / ".gbh"
 LAUNCH_AGENTS_DIR = Path.home() / "Library/LaunchAgents"
+
+_ANSI_RE = re.compile(r"\033\[[0-9;]*m")
+
+
+def _plain(line: str) -> str:
+    """Strip ANSI colour codes for notification text / non-terminal output."""
+    return _ANSI_RE.sub("", line).strip()
 
 # plist label → friendly name → expected cmdline substring
 DAEMONS = {
@@ -182,10 +192,43 @@ def check_focus_state() -> list[str]:
     return lines
 
 
+def check_notifications() -> list[str]:
+    """Probe real delivery so silent drops can't hide for months again."""
+    from staff.notify import probe, recent_audit, AUDIT_LOG, _resolve_notifier
+
+    lines: list[str] = []
+    notifier = _resolve_notifier()
+    if notifier:
+        lines.append(_ok(f"terminal-notifier at {notifier}"))
+    else:
+        lines.append(_warn("terminal-notifier not found (osascript-only fallback)"))
+        lines.append(_fix("brew install terminal-notifier && bash installer.sh"))
+
+    result = probe()
+    if result["ok"]:
+        lines.append(_ok(f"Notify probe delivered via {result['via']}"))
+    else:
+        lines.append(_err(f"Notify probe FAILED — {result['detail']}"))
+        if result.get("fix_hint"):
+            lines.append(_fix(result["fix_hint"]))
+
+    # Recent audit: warn if the last few real (non-probe) attempts all failed
+    recent = [r for r in recent_audit(20) if not r.get("probe")]
+    if recent:
+        last = recent[-1]
+        if last.get("ok"):
+            lines.append(_ok(f"Last notify ok via {last.get('via')} ({last.get('staff')})"))
+        else:
+            lines.append(_warn(
+                f"Last notify FAILED for {last.get('staff')} — see {AUDIT_LOG}"
+            ))
+    return lines
+
+
 # ── Doctor ───────────────────────────────────────────────────────
 
 class Doctor:
-    def run(self) -> None:
+    def run(self, notify: bool = False) -> None:
         print(f"\n{_BOLD}🏨 GBH Doctor{_RESET}\n" + _hr())
 
         all_lines: list[str] = []
@@ -213,12 +256,34 @@ class Doctor:
             print("  " + line)
             all_lines.append(line)
 
+        print("\n" + _hr())
+        print("\nNotifications")
+        for line in check_notifications():
+            print("  " + line)
+            all_lines.append(line)
+
         # Summary
-        issues = sum(1 for line in all_lines if line.startswith(f"{_RED}❌") or "⚠️" in line)
+        issue_lines = [
+            line for line in all_lines
+            if line.startswith(f"{_RED}❌") or "⚠️" in line
+        ]
+        issues = len(issue_lines)
         print("\n" + _hr())
         if issues == 0:
             print(f"\n{_GREEN}{_BOLD}All good.{_RESET} No issues found.\n")
         else:
             print(f"\n{_RED}{_BOLD}{issues} issue(s) found.{_RESET} See fix hints above.\n")
+
+        if notify and issues > 0:
+            # Only notify when something's actually wrong — same "never nags"
+            # rule as Kovacs/Ludwig. This is the check meant to catch the
+            # class of outage that motivated it: every LaunchAgent silently
+            # dead for days because their venv disappeared, discovered only
+            # because a webpage didn't load.
+            labels = [_plain(line).lstrip("❌⚠️ ") for line in issue_lines]
+            summary = " · ".join(labels[:3])
+            if len(labels) > 3:
+                summary += f" +{len(labels) - 3} more"
+            _send_notify("Doctor", f"{issues} issue(s) — {summary}", urgent=True)
 
         sys.exit(0 if issues == 0 else 1)

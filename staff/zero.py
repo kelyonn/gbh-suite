@@ -26,7 +26,9 @@ class Zero:
     def log(self, msg: str):
         print(f"🟣 {msg}", flush=True)
 
-    def clean_screenshots(self, days_old: int = 1) -> int:
+    def clean_screenshots(self, days_old: int | None = None) -> int:
+        if days_old is None:
+            days_old = config.SCREENSHOT_MAX_AGE_DAYS
         self.log(f"Sweeping Desktop for screenshots older than {days_old} day(s)...")
         cutoff = time.time() - (days_old * 86400)
         count = 0
@@ -103,7 +105,13 @@ class Zero:
         except (OSError, PermissionError):
             return None
 
-    def find_duplicates(self, directory: str) -> list[list[str]]:
+    def find_duplicate_groups(self, directory: str) -> list[list[str]]:
+        """Pure scan: return groups of file paths with identical content.
+
+        No prompting, no I/O beyond reading — safe to call from tests or the
+        dashboard. Two-phase (size bucket, then hash within each bucket) so
+        we only hash files that already have a same-size collision candidate.
+        """
         self.log(f"Hunting duplicates in: {directory}")
         by_size: dict[int, list[str]] = {}
         for root, dirs, files in os.walk(directory):
@@ -132,6 +140,16 @@ class Zero:
                     duplicates.append(group)
         if not duplicates:
             self.log("No duplicates found.")
+        return duplicates
+
+    def find_duplicates(self, directory: str) -> list[list[str]]:
+        """Interactive CLI flow: scan, then prompt per group and trash the rest.
+
+        Kept separate from find_duplicate_groups() so the scan itself stays
+        testable without stubbing input().
+        """
+        duplicates = self.find_duplicate_groups(directory)
+        if not duplicates:
             return []
         total_saved = 0.0
         for group in duplicates:
