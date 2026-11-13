@@ -1,0 +1,118 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#19121c"/>
+      <stop offset="55%" stop-color="#0e0b10"/>
+      <stop offset="100%" stop-color="#070608"/>
+    </linearGradient>
+    <radialGradient id="glow" cx="50%" cy="30%" r="50%">
+      <stop offset="0%" stop-color="#f3b9d6" stop-opacity="0.22"/>
+      <stop offset="100%" stop-color="#f3b9d6" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="gold" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="#e9cd84"/>
+      <stop offset="100%" stop-color="#b98f3a"/>
+    </linearGradient>
+    <clipPath id="frame">
+      <rect x="32" y="32" width="960" height="960" rx="208"/>
+    </clipPath>
+  </defs>
+
+  <rect x="32" y="32" width="960" height="960" rx="208" fill="url(#bg)"/>
+
+  <g clip-path="url(#frame)">
+    <rect x="32" y="32" width="960" height="960" fill="url(#glow)"/>
+
+    <!-- distant mountains -->
+    <polygon points="32,636 224,402 418,636" fill="#241a28" opacity="0.65"/>
+    <polygon points="566,636 792,356 992,636" fill="#241a28" opacity="0.55"/>
+    <polygon points="352,636 512,470 690,636" fill="#2c1f30" opacity="0.7"/>
+
+    <!-- ground line -->
+    <rect x="32" y="818" width="960" height="4" fill="#b98f3a" opacity="0.6"/>
+
+    <!-- topiaries -->
+    <g opacity="0.95">
+      <rect x="112" y="802" width="14" height="18" fill="#6b4a2a"/>
+      <circle cx="119" cy="786" r="24" fill="#3f6b52"/>
+      <circle cx="119" cy="786" r="24" fill="none" stroke="#2c4e3a" stroke-width="2"/>
+      <rect x="898" y="802" width="14" height="18" fill="#6b4a2a"/>
+      <circle cx="905" cy="786" r="24" fill="#3f6b52"/>
+      <circle cx="905" cy="786" r="24" fill="none" stroke="#2c4e3a" stroke-width="2"/>
+    </g>
+
+    <!-- left wing -->
+    <rect x="176" y="574" width="180" height="246" fill="#e998c2"/>
+    <rect x="168" y="560" width="196" height="16" fill="url(#gold)"/>
+    <g fill="#1a1420" stroke="url(#gold)" stroke-width="3">
+      <rect x="206" y="600" width="40" height="46" rx="3"/>
+      <rect x="290" y="600" width="40" height="46" rx="3"/>
+      <rect x="206" y="670" width="40" height="46" rx="3"/>
+      <rect x="290" y="670" width="40" height="46" rx="3"/>
+      <rect x="206" y="740" width="40" height="46" rx="3"/>
+      <rect x="290" y="740" width="40" height="46" rx="3"/>
+    </g>
+
+    <!-- right wing -->
+    <rect x="668" y="574" width="180" height="246" fill="#e998c2"/>
+    <rect x="660" y="560" width="196" height="16" fill="url(#gold)"/>
+    <g fill="#1a1420" stroke="url(#gold)" stroke-width="3">
+      <rect x="698" y="600" width="40" height="46" rx="3"/>
+      <rect x="782" y="600" width="40" height="46" rx="3"/>
+      <rect x="698" y="670" width="40" height="46" rx="3"/>
+      <rect x="782" y="670" width="40" height="46" rx="3"/>
+      <rect x="698" y="740" width="40" height="46" rx="3"/>
+      <rect x="782" y="740" width="40" height="46" rx="3"/>
+    </g>
+
+    <!-- center tower -->
+    <rect x="372" y="430" width="280" height="390" fill="#f3b9d6"/>
+    <rect x="364" y="422" width="296" height="14" fill="url(#gold)"/>
+
+    <g fill="#1a1420" stroke="url(#gold)" stroke-width="3">
+      <rect x="424" y="458" width="40" height="46" rx="3"/>
+      <rect x="492" y="458" width="40" height="46" rx="3"/>
+      <rect x="560" y="458" width="40" height="46" rx="3"/>
+      <rect x="424" y="600" width="40" height="46" rx="3"/>
+      <rect x="560" y="600" width="40" height="46" rx="3"/>
+      <rect x="424" y="670" width="40" height="46" rx="3"/>
+      <rect x="560" y="670" width="40" height="46" rx="3"/>
+      <rect x="424" y="740" width="40" height="46" rx="3"/>
+      <rect x="560" y="740" width="40" height="46" rx="3"/>
+    </g>
+
+    <!-- awning -->
+    <rect x="460" y="690" width="104" height="22" fill="#7a2142"/>
+    <rect x="460" y="690" width="104" height="6" fill="url(#gold)"/>
+    <polygon points="460,712 472,730 484,712" fill="#7a2142"/>
+    <polygon points="488,712 500,730 512,712" fill="#f3b9d6"/>
+    <polygon points="512,712 524,730 536,712" fill="#7a2142"/>
+    <polygon points="540,712 552,730 564,712" fill="#f3b9d6"/>
+
+    <!-- entrance arch -->
+    <path d="M472,820 L472,750 A40,40 0 0 1 552,750 L552,820 Z" fill="#f2e4cf" stroke="url(#gold)" stroke-width="5"/>
+    <path d="M482,820 L482,752 A30,30 0 0 1 542,752 L542,820 Z" fill="#7a2142"/>
+    <line x1="512" y1="752" x2="512" y2="820" stroke="url(#gold)" stroke-width="3"/>
+
+    <!-- mansard roof -->
+    <polygon points="372,430 652,430 598,332 426,332" fill="url(#gold)"/>
+    <polygon points="372,430 652,430 636,404 388,404" fill="#9c7730" opacity="0.5"/>
+
+    <!-- dormers -->
+    <g>
+      <rect x="440" y="392" width="28" height="30" fill="#e998c2"/>
+      <polygon points="438,392 454,368 470,392" fill="url(#gold)"/>
+      <rect x="498" y="384" width="28" height="38" fill="#e998c2"/>
+      <polygon points="496,384 512,358 528,384" fill="url(#gold)"/>
+      <rect x="556" y="392" width="28" height="30" fill="#e998c2"/>
+      <polygon points="554,392 570,368 586,392" fill="url(#gold)"/>
+    </g>
+
+    <!-- flagpole + pennant -->
+    <line x1="512" y1="358" x2="512" y2="256" stroke="url(#gold)" stroke-width="6"/>
+    <polygon points="512,256 512,290 566,274" fill="#7a2142"/>
+    <circle cx="512" cy="256" r="7" fill="url(#gold)"/>
+  </g>
+
+  <rect x="52" y="52" width="920" height="920" rx="188" fill="none" stroke="url(#gold)" stroke-width="5" opacity="0.85"/>
+</svg>
