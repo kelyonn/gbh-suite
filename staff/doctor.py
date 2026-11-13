@@ -194,7 +194,7 @@ def check_focus_state() -> list[str]:
 
 def check_notifications() -> list[str]:
     """Probe real delivery so silent drops can't hide for months again."""
-    from staff.notify import probe, recent_audit, AUDIT_LOG, _resolve_notifier
+    from staff.notify import AUDIT_LOG, _resolve_notifier, probe, recent_audit
 
     lines: list[str] = []
     notifier = _resolve_notifier()
