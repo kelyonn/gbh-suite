@@ -355,10 +355,12 @@ templates = Jinja2Templates(directory=str(BASE_DIR / "templates"))
 @app.get("/")
 def index(request: Request):
     vitals = get_vitals()
+    favicon_path = BASE_DIR / "static" / "favicon.png"
+    favicon_v = int(favicon_path.stat().st_mtime) if favicon_path.is_file() else 0
     resp = templates.TemplateResponse(
         request=request,
         name="dashboard.html",
-        context={"vitals": vitals.to_dict()},
+        context={"vitals": vitals.to_dict(), "favicon_v": favicon_v},
     )
     resp.headers["Cache-Control"] = "no-store"
     return resp
