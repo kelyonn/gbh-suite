@@ -24,7 +24,7 @@ import shutil
 import subprocess
 import time
 import uuid
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 GBH_DATA = Path.home() / ".gbh"
@@ -90,7 +90,7 @@ def _audit(record: dict) -> None:
         GBH_DATA.mkdir(parents=True, exist_ok=True)
         record = {
             **record,
-            "ts": datetime.now(timezone.utc).isoformat(),
+            "ts": datetime.now(UTC).isoformat(),
         }
         with open(AUDIT_LOG, "a") as f:
             f.write(json.dumps(record) + "\n")
