@@ -125,3 +125,72 @@ def test_probe_reports_failure_clearly(tmp_path, monkeypatch, no_real_notificati
     assert result["ok"] is False
     assert result["fix_hint"]
     assert "terminal-notifier" in result["detail"] or "osascript" in result["detail"]
+
+
+def test_terminal_notifier_is_tried_before_osascript(tmp_path, monkeypatch, no_real_notifications):
+    """Only terminal-notifier carries the GBH icon, so it must win when it works."""
+    fake = tmp_path / "terminal-notifier"
+    fake.write_text("#!/bin/sh\n")
+    fake.chmod(0o755)
+
+    monkeypatch.setattr(notify, "AUDIT_LOG", tmp_path / "notify_audit.jsonl")
+    monkeypatch.setattr(notify, "GBH_DATA", tmp_path)
+    monkeypatch.setattr(notify, "_resolve_notifier", lambda: str(fake))
+    monkeypatch.setattr(notify, "_tn_list", lambda *a, **k: True)
+
+    assert notify.notify("Serge", "file.pdf") is True
+    assert all(c[0] != "osascript" for c in no_real_notifications)
+    audit = json.loads((tmp_path / "notify_audit.jsonl").read_text().strip().splitlines()[-1])
+    assert audit["via"] == "terminal-notifier"
+
+
+def test_osascript_used_when_terminal_notifier_unverified(tmp_path, monkeypatch, no_real_notifications):
+    fake = tmp_path / "terminal-notifier"
+    fake.write_text("#!/bin/sh\n")
+    fake.chmod(0o755)
+
+    monkeypatch.setattr(notify, "AUDIT_LOG", tmp_path / "notify_audit.jsonl")
+    monkeypatch.setattr(notify, "GBH_DATA", tmp_path)
+    monkeypatch.setattr(notify, "_resolve_notifier", lambda: str(fake))
+    monkeypatch.setattr(notify, "_tn_list", lambda *a, **k: False)
+
+    assert notify.notify("Serge", "file.pdf") is True
+    audit = json.loads((tmp_path / "notify_audit.jsonl").read_text().strip().splitlines()[-1])
+    assert audit["via"] == "osascript"
+    assert audit["tried"] == ["terminal-notifier", "osascript"]
+
+
+def test_concierge_is_tried_first_and_has_no_sender(tmp_path, monkeypatch, no_real_notifications):
+    fake = tmp_path / "GBHConcierge"
+    fake.write_text("#!/bin/sh\n")
+    fake.chmod(0o755)
+
+    monkeypatch.setattr(notify, "AUDIT_LOG", tmp_path / "notify_audit.jsonl")
+    monkeypatch.setattr(notify, "GBH_DATA", tmp_path)
+    monkeypatch.setattr(notify, "_resolve_concierge", lambda: str(fake))
+
+    assert notify.notify("Serge", "file.pdf", urgent=False) is True
+    assert len(no_real_notifications) == 1
+    cmd = no_real_notifications[0]
+    assert cmd[0] == str(fake)
+    assert "-sender" not in cmd and "-title" in cmd and "-message" in cmd
+    audit = json.loads((tmp_path / "notify_audit.jsonl").read_text().strip().splitlines()[-1])
+    assert audit["via"] == "concierge"
+    assert audit["tried"] == ["concierge"]
+
+
+def test_falls_through_when_concierge_fails(tmp_path, monkeypatch, no_real_notifications):
+    fake = tmp_path / "GBHConcierge"
+    fake.write_text("#!/bin/sh\n")
+    fake.chmod(0o755)
+
+    monkeypatch.setattr(notify, "AUDIT_LOG", tmp_path / "notify_audit.jsonl")
+    monkeypatch.setattr(notify, "GBH_DATA", tmp_path)
+    monkeypatch.setattr(notify, "_resolve_concierge", lambda: str(fake))
+    monkeypatch.setattr(notify, "_send_concierge", lambda *a, **k: False)
+    monkeypatch.setattr(notify, "_resolve_notifier", lambda: None)
+
+    assert notify.notify("Serge", "file.pdf") is True
+    audit = json.loads((tmp_path / "notify_audit.jsonl").read_text().strip().splitlines()[-1])
+    assert audit["via"] == "osascript"
+    assert audit["tried"] == ["concierge", "osascript"]

@@ -101,6 +101,19 @@ STUB
 PLIST
     rm -rf "$HOME/Applications/$APP_BUNDLE"
     cp -R "$GBH_DIR/$APP_BUNDLE" "$HOME/Applications/$APP_BUNDLE"
+    # Build the real notifier so banners are posted by Concierge.app itself —
+    # macOS shows the posting app's icon, which is how the hotel icon appears.
+    if command -v swiftc >/dev/null 2>&1; then
+        if swiftc -O "$GBH_DIR/concierge/notifier.swift" \
+            -o "$HOME/Applications/$APP_BUNDLE/Contents/MacOS/GBHConcierge" 2>/dev/null; then
+            codesign --force --deep --sign - "$HOME/Applications/$APP_BUNDLE" 2>/dev/null || true
+            echo "   ✅ Concierge notifier built (hotel icon on banners)"
+        else
+            echo "   ⚠️  Could not build Concierge notifier; falling back to terminal-notifier" >&2
+        fi
+    else
+        echo "   ⚠️  swiftc not found (xcode-select --install) — banners will lack the hotel icon" >&2
+    fi
     [ -x "$LSREGISTER" ] && "$LSREGISTER" -f "$HOME/Applications/$APP_BUNDLE" 2>/dev/null || true
     echo "   ✅ $APP_BUNDLE installed with real executable stub"
 fi

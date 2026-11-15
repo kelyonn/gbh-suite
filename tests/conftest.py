@@ -105,12 +105,17 @@ def no_real_notifications(monkeypatch):
     """
     import subprocess
 
+    from staff import notify as _notify
+
+    # Default: no Concierge helper, so cascade tests start at terminal-notifier/osascript.
+    monkeypatch.setattr(_notify, "_resolve_concierge", lambda: None)
+
     calls = []
     real_run = subprocess.run
 
     def _fake_run(cmd, *args, **kwargs):
         if isinstance(cmd, list) and cmd and (
-            "terminal-notifier" in cmd[0] or cmd[0] == "osascript"
+            "terminal-notifier" in cmd[0] or cmd[0] == "osascript" or "GBHConcierge" in cmd[0]
         ):
             calls.append(cmd)
 

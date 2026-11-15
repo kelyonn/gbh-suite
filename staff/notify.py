@@ -3,9 +3,13 @@ GBH Notify Utility
 
 Delivers macOS notifications with a cascade that refuses to fail silently:
 
-  1. osascript `display notification` (most reliable for CLI/LaunchAgents)
-  2. terminal-notifier (no -sender — a stub Concierge.app made that drop banners)
-  3. Always append an audit line to ~/.gbh/notify_audit.jsonl
+  1. GBH Concierge.app helper (concierge/notifier.swift, built by installer.sh).
+     macOS shows the *posting app's* icon, so this is the only path that
+     carries the GBH hotel icon. It posts as com.gbh.concierge itself — never
+     via terminal-notifier `-sender`, which silently dropped banners.
+  2. terminal-notifier (Terminal icon; -appIcon is ignored on modern macOS)
+  3. osascript `display notification` (Script Editor icon)
+  4. Always append an audit line to ~/.gbh/notify_audit.jsonl
 
 Verification:
   - terminal-notifier path is confirmed via `terminal-notifier -list <group>`
@@ -41,6 +45,29 @@ _NOTIFIER_CANDIDATES = [
     Path("/opt/homebrew/bin/terminal-notifier"),
     Path("/usr/local/bin/terminal-notifier"),
 ]
+
+
+CONCIERGE_BIN = Path.home() / "Applications/GBH Concierge.app/Contents/MacOS/GBHConcierge"
+
+
+def _resolve_concierge() -> str | None:
+    if CONCIERGE_BIN.is_file() and os.access(CONCIERGE_BIN, os.X_OK):
+        return str(CONCIERGE_BIN)
+    return None
+
+
+def _send_concierge(binary: str, title: str, message: str, subtitle: str, sound: str) -> bool:
+    """Primary path. Exit code 0 means Notification Centre accepted the banner."""
+    cmd = [binary, "-title", title, "-message", message]
+    if subtitle:
+        cmd += ["-subtitle", subtitle]
+    if sound:
+        cmd += ["-sound", sound]
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+        return r.returncode == 0
+    except Exception:
+        return False
 
 
 def _resolve_notifier() -> str | None:
@@ -229,18 +256,25 @@ def notify(
     paths_tried: list[str] = []
     delivered_via: str | None = None
 
-    # 1) osascript first — independent of terminal-notifier permission state
-    paths_tried.append("osascript")
-    if _send_osascript(full_title, message, subtitle, snd):
-        delivered_via = "osascript"
+    # 1) Concierge helper — the only path that carries the GBH icon.
+    concierge = _resolve_concierge()
+    if concierge:
+        paths_tried.append("concierge")
+        if _send_concierge(concierge, full_title, message, subtitle, snd):
+            delivered_via = "concierge"
 
-    # 2) terminal-notifier as well when osascript worked? No — avoid doubles.
-    #    Only use it if osascript failed.
+    # 2) terminal-notifier, confirmed via -list.
     notifier = _resolve_notifier()
     if delivered_via is None and notifier:
         paths_tried.append("terminal-notifier")
         if _send_terminal_notifier(notifier, full_title, message, subtitle, snd, group):
             delivered_via = "terminal-notifier"
+
+    # 3) osascript last resort.
+    if delivered_via is None:
+        paths_tried.append("osascript")
+        if _send_osascript(full_title, message, subtitle, snd):
+            delivered_via = "osascript"
 
     ok = delivered_via is not None
     _audit({
@@ -280,51 +314,56 @@ def probe(timeout_sec: float = 2.0) -> dict:
     title = "GBH  ·  Probe"
     group = f"gbh-probe-{token}"
 
-    # Test osascript
-    osa_ok = _send_osascript(title, msg, "Health Check", "Ping")
-    if osa_ok:
-        _audit({"staff": "Probe", "title": title, "message": msg, "ok": True, "via": "osascript", "tried": ["osascript"], "probe": True})
+    concierge = _resolve_concierge()
+    if concierge and _send_concierge(concierge, title, msg, "Health Check", "Ping"):
+        _audit({"staff": "Probe", "title": title, "message": msg, "ok": True,
+                "via": "concierge", "tried": ["concierge"], "probe": True})
         return {
             "ok": True,
-            "via": "osascript",
-            "detail": "osascript display notification succeeded",
+            "via": "concierge",
+            "detail": "GBH Concierge.app delivered the notification",
             "fix_hint": None,
         }
 
     notifier = _resolve_notifier()
+    if notifier:
+        tn_ok = _send_terminal_notifier(notifier, title, msg, "Health Check", "Ping", group)
+        # Give NC a moment, then re-check list
+        deadline = time.time() + timeout_sec
+        while time.time() < deadline and not tn_ok:
+            time.sleep(0.2)
+            tn_ok = _tn_list(notifier, group)
+        if tn_ok:
+            _audit({"staff": "Probe", "title": title, "message": msg, "ok": True,
+                    "via": "terminal-notifier", "tried": ["terminal-notifier"],
+                    "probe": True, "group": group})
+            return {
+                "ok": True,
+                "via": "terminal-notifier",
+                "detail": f"terminal-notifier delivered group {group}",
+                "fix_hint": None,
+            }
+
+    # Fallback: osascript (works, but shows the Script Editor icon)
+    if _send_osascript(title, msg, "Health Check", "Ping"):
+        _audit({"staff": "Probe", "title": title, "message": msg, "ok": True,
+                "via": "osascript", "tried": ["terminal-notifier", "osascript"], "probe": True})
+        return {
+            "ok": True,
+            "via": "osascript",
+            "detail": "osascript display notification succeeded (Script Editor icon)",
+            "fix_hint": None if notifier else "brew install terminal-notifier && bash installer.sh",
+        }
+
+    _audit({"staff": "Probe", "title": title, "message": msg, "ok": False, "via": None,
+            "tried": ["terminal-notifier", "osascript"] if notifier else ["osascript"],
+            "probe": True, "group": group})
     if not notifier:
-        _audit({"staff": "Probe", "ok": False, "via": None, "tried": ["osascript"], "probe": True})
         return {
             "ok": False,
             "via": None,
             "detail": "osascript failed and terminal-notifier is not installed",
             "fix_hint": "brew install terminal-notifier && bash installer.sh",
-        }
-
-    tn_ok = _send_terminal_notifier(notifier, title, msg, "Health Check", "Ping", group)
-    # Give NC a moment, then re-check list
-    deadline = time.time() + timeout_sec
-    while time.time() < deadline and not tn_ok:
-        time.sleep(0.2)
-        tn_ok = _tn_list(notifier, group)
-
-    _audit({
-        "staff": "Probe",
-        "title": title,
-        "message": msg,
-        "ok": tn_ok,
-        "via": "terminal-notifier" if tn_ok else None,
-        "tried": ["osascript", "terminal-notifier"],
-        "probe": True,
-        "group": group,
-    })
-
-    if tn_ok:
-        return {
-            "ok": True,
-            "via": "terminal-notifier",
-            "detail": f"terminal-notifier delivered group {group}",
-            "fix_hint": None,
         }
 
     return {
